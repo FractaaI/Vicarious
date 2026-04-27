@@ -1,0 +1,6 @@
+{
+  "name": "Vicarious",
+  "description": "A minimal, keyboard-first web app for writing screenplay-style dialogues with real-time chat preview.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

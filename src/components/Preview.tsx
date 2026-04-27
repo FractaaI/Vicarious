@@ -66,6 +66,11 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
 
           const header = isHeader(line.text);
           
+          let displayText = line.text;
+          if (header && line.text.trim().startsWith('[')) {
+            displayText = line.text.trim().replace(/^\[|\]$/g, '');
+          }
+          
           if (header) {
             return (
               <div 
@@ -74,7 +79,7 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
                 ref={(el) => (lineRefs.current[line.id] = el)}
               >
                 <span className="text-sm font-serif italic text-stone-400 dark:text-zinc-500 tracking-wider">
-                  {line.text}
+                  {displayText}
                 </span>
               </div>
             );

@@ -4,7 +4,7 @@ Vicarious is a keyboard-first writing space for dialogues.
 I built it for my personal use, to help me writing dialogues for visual-novel ish video games.
 Feel free to use it and adapt it as you want.
 
-![Vicarious Interface Preview](./screenshot.png)
+<img width="1912" height="920" alt="screenshot" src="https://github.com/user-attachments/assets/177b21fc-89cc-430c-aa59-65ef586a2bd7" />
 
 ---
 

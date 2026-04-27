@@ -1,10 +1,11 @@
 # Vicarious
 
 Vicarious is a keyboard-first writing space for dialogues.
-
 I built it for my personal use, to help me writing dialogues for visual-novel ish video games.
-
 Feel free to use it and adapt it as you want.
+
+![Vicarious Interface Preview](./screenshot.png)
+
 ---
 
 ## Features
@@ -47,6 +48,7 @@ Vicarious is meant to disappear once learned.
 2. Run `npm install` to install dependencies.
 3. Run `npm run dev` to start the development server.
 4. Open your browser to the local URL provided by Vite.
+5. **Try the Demo**: Load the `demo.vicarious` file included in this repository using the "Load Backup" button in the bottom left sidebar to instantly try out a pre-written sample scene.
 
 ## License
 

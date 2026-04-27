@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "currentSceneId": "scene-demo",
+  "scenes": [
+    {
+      "id": "scene-demo",
+      "name": "The Artifact",
+      "characters": [
+        { "id": "1", "name": "Lyra", "color": "#ef4444" },
+        { "id": "2", "name": "Kael", "color": "#3b82f6" },
+        { "id": "3", "name": "System", "color": "#10b981" }
+      ],
+      "lines": [
+        { "id": "l0", "characterId": "3", "text": "EXT. RUINED COURTYARD - DUSK" },
+        { "id": "l1", "characterId": "2", "text": "You said it would be here." },
+        { "id": "l2", "characterId": "1", "text": "I said it might be here. There's a difference." },
+        { "id": "l3", "characterId": "2", "text": "A difference that just cost us three days and two fuel cells." },
+        { "id": "l4", "characterId": "3", "text": "[Lyra kicks the dirt, unearthing a rusted cogway. She bends down.]" },
+        { "id": "l5", "characterId": "1", "text": "Look at the burn marks on the casing. We're on the right track." },
+        { "id": "l6", "characterId": "2", "text": "If you call being hunted by Sentinels the right track." },
+        { "id": "l7", "characterId": "1", "text": "I call it progress." }
+      ]
+    }
+  ]
+}

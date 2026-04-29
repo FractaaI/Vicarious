@@ -1,8 +1,23 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Menu, Plus, Download, ChevronRight, MessageSquare, Trash2, Edit2, Moon, Sun, UploadCloud, DownloadCloud } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ChevronRight,
+  Download,
+  FolderOpen,
+  Moon,
+  Plus,
+  Save,
+  SaveAll,
+  Sun,
+  Trash2,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Scene, Character, DialogueLine } from './types';
+import { createBlankProject } from '../../shared/project';
+import type { Character, DialogueLine, Scene, VicariousProject } from './types';
+import Editor from './components/Editor';
+import Preview from './components/Preview';
 import { PALETTE_COLORS, getAdaptiveColor } from './utils/colors';
+
+const RENDERER_PLACEHOLDER_APP_VERSION = '0.0.0';
 
 const DEFAULT_CHARACTER_POOL: Character[] = [
   { id: '1', name: 'Character 1', color: PALETTE_COLORS[0] },
@@ -11,37 +26,28 @@ const DEFAULT_CHARACTER_POOL: Character[] = [
   { id: '4', name: 'Character 4', color: PALETTE_COLORS[5] },
 ];
 
-const INITIAL_SCENE: Scene = {
-  id: 'scene-1',
-  name: 'Scene 1',
-  characters: [DEFAULT_CHARACTER_POOL[0], DEFAULT_CHARACTER_POOL[1]],
-  lines: [
-    { id: 'initial-line', characterId: '1', text: '' }
-  ]
-};
+function createInitialProject(): VicariousProject {
+  const ids = [
+    `project-${Date.now()}`,
+    'scene-1',
+    DEFAULT_CHARACTER_POOL[0].id,
+    DEFAULT_CHARACTER_POOL[1].id,
+    'initial-line',
+  ];
+  let index = 0;
+
+  return createBlankProject({
+    appVersion: RENDERER_PLACEHOLDER_APP_VERSION,
+    generateId: () => ids[index++] ?? `id-${Date.now()}-${index}`,
+  });
+}
 
 export default function App() {
-  const [scenes, setScenes] = useState<Scene[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vicarious-scenes');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse scenes from localStorage", e);
-        }
-      }
-    }
-    return [INITIAL_SCENE];
-  });
-  
-  const [currentSceneId, setCurrentSceneId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vicarious-current-scene');
-      if (saved) return saved;
-    }
-    return INITIAL_SCENE.id;
-  });
+  const [project, setProject] = useState<VicariousProject>(() => createInitialProject());
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectStatus, setProjectStatus] = useState<string | null>(null);
   const [activeSpeakerIndex, setActiveSpeakerIndex] = useState(0);
   const [activeColorPicker, setActiveColorPicker] = useState<string | null>(null);
   const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
@@ -53,10 +59,8 @@ export default function App() {
     return false;
   });
 
-  useEffect(() => {
-    localStorage.setItem('vicarious-scenes', JSON.stringify(scenes));
-    localStorage.setItem('vicarious-current-scene', currentSceneId);
-  }, [scenes, currentSceneId]);
+  const scenes = project.scenes;
+  const currentSceneId = project.currentSceneId;
 
   useEffect(() => {
     if (isDarkMode) {
@@ -74,149 +78,228 @@ export default function App() {
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  const currentScene = useMemo(() => 
-    scenes.find(s => s.id === currentSceneId) || scenes[0], 
-  [scenes, currentSceneId]);
+  const currentScene = useMemo(
+    () => scenes.find((scene) => scene.id === currentSceneId) || scenes[0],
+    [scenes, currentSceneId]
+  );
 
-  const updateCurrentScene = useCallback((updater: (scene: Scene) => Scene) => {
-    setScenes(prev => prev.map(s => s.id === currentSceneId ? updater(s) : s));
-  }, [currentSceneId]);
+  const markDirty = useCallback(() => {
+    setIsDirty(true);
+    setProjectStatus(null);
+  }, []);
+
+  const updateCurrentScene = useCallback(
+    (updater: (scene: Scene) => Scene) => {
+      setProject((previous) => ({
+        ...previous,
+        scenes: previous.scenes.map((scene) =>
+          scene.id === previous.currentSceneId ? updater(scene) : scene
+        ),
+      }));
+      markDirty();
+    },
+    [markDirty]
+  );
+
+  const handleOpenProject = useCallback(async () => {
+    setProjectError(null);
+
+    try {
+      const response = await getDesktopApi().openProject();
+
+      if (!response) {
+        return;
+      }
+
+      setProject(response.project);
+      setFilePath(response.filePath);
+      setIsDirty(false);
+      setActiveSpeakerIndex(0);
+      setActiveColorPicker(null);
+      setCharacterToDelete(null);
+      setProjectStatus(`Opened ${fileNameFromPath(response.filePath)}`);
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+    }
+  }, []);
+
+  const handleSaveProject = useCallback(async (): Promise<boolean> => {
+    setProjectError(null);
+
+    try {
+      const response = filePath
+        ? await getDesktopApi().saveProject(project, filePath)
+        : await getDesktopApi().saveProjectAs(project);
+
+      if (!response) {
+        return false;
+      }
+
+      setProject(response.project);
+      setFilePath(response.filePath);
+      setIsDirty(false);
+      setProjectStatus(`Saved ${fileNameFromPath(response.filePath)}`);
+      return true;
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+      return false;
+    }
+  }, [filePath, project]);
+
+  const handleSaveProjectAs = useCallback(async (): Promise<boolean> => {
+    setProjectError(null);
+
+    try {
+      const response = await getDesktopApi().saveProjectAs(project);
+
+      if (!response) {
+        return false;
+      }
+
+      setProject(response.project);
+      setFilePath(response.filePath);
+      setIsDirty(false);
+      setProjectStatus(`Saved ${fileNameFromPath(response.filePath)}`);
+      return true;
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+      return false;
+    }
+  }, [project]);
 
   const addScene = () => {
+    const timestamp = Date.now();
     const newScene: Scene = {
-      id: `scene-${Date.now()}`,
+      id: `scene-${timestamp}`,
       name: `Scene ${scenes.length + 1}`,
       characters: [DEFAULT_CHARACTER_POOL[0], DEFAULT_CHARACTER_POOL[1]],
-      lines: [{ id: `line-${Date.now()}`, characterId: DEFAULT_CHARACTER_POOL[0].id, text: '' }]
+      lines: [
+        {
+          id: `line-${timestamp}`,
+          characterId: DEFAULT_CHARACTER_POOL[0].id,
+          text: '',
+        },
+      ],
     };
-    setScenes([...scenes, newScene]);
-    setCurrentSceneId(newScene.id);
+
+    setProject((previous) => ({
+      ...previous,
+      scenes: [...previous.scenes, newScene],
+      currentSceneId: newScene.id,
+    }));
     setActiveSpeakerIndex(0);
+    markDirty();
   };
 
   const deleteScene = (id: string) => {
     if (scenes.length === 1) return;
-    const newScenes = scenes.filter(s => s.id !== id);
-    setScenes(newScenes);
-    if (currentSceneId === id) {
-      setCurrentSceneId(newScenes[0].id);
-      setActiveSpeakerIndex(0);
-    }
+
+    setProject((previous) => {
+      const newScenes = previous.scenes.filter((scene) => scene.id !== id);
+
+      return {
+        ...previous,
+        scenes: newScenes,
+        currentSceneId:
+          previous.currentSceneId === id ? newScenes[0].id : previous.currentSceneId,
+      };
+    });
+    setActiveSpeakerIndex(0);
+    markDirty();
+  };
+
+  const selectScene = (sceneId: string) => {
+    setProject((previous) =>
+      previous.currentSceneId === sceneId
+        ? previous
+        : { ...previous, currentSceneId: sceneId }
+    );
+    setActiveSpeakerIndex(0);
   };
 
   const updateCharacterName = (charId: string, name: string) => {
-    updateCurrentScene(scene => ({
+    updateCurrentScene((scene) => ({
       ...scene,
-      characters: scene.characters.map(c => c.id === charId ? { ...c, name } : c)
+      characters: scene.characters.map((character) =>
+        character.id === charId ? { ...character, name } : character
+      ),
     }));
   };
 
   const updateCharacterColor = (charId: string, color: string) => {
-    updateCurrentScene(scene => ({
+    updateCurrentScene((scene) => ({
       ...scene,
-      characters: scene.characters.map(c => c.id === charId ? { ...c, color } : c)
+      characters: scene.characters.map((character) =>
+        character.id === charId ? { ...character, color } : character
+      ),
     }));
     setActiveColorPicker(null);
   };
 
   const addCharacter = () => {
     if (currentScene.characters.length >= 4) return;
-    
-    // Find a color/id from pool that isn't used yet in this scene
-    const usedIds = currentScene.characters.map(c => c.id);
-    const nextAvailable = DEFAULT_CHARACTER_POOL.find(p => !usedIds.includes(p.id)) || DEFAULT_CHARACTER_POOL[currentScene.characters.length];
-    
-    updateCurrentScene(scene => ({
+
+    const usedIds = currentScene.characters.map((character) => character.id);
+    const nextAvailable =
+      DEFAULT_CHARACTER_POOL.find((character) => !usedIds.includes(character.id)) ??
+      createFallbackCharacter(currentScene.characters.length);
+
+    updateCurrentScene((scene) => ({
       ...scene,
-      characters: [...scene.characters, nextAvailable]
+      characters: [...scene.characters, nextAvailable],
     }));
   };
 
   const removeCharacter = (charId: string) => {
     if (currentScene.characters.length <= 1) return;
-    
-    updateCurrentScene(scene => {
-      const newChars = scene.characters.filter(c => c.id !== charId);
-      // Reassign lines that were from this character to the first character in the scene
-      const newLines = scene.lines.map(line => 
-        line.characterId === charId ? { ...line, characterId: newChars[0].id } : line
+
+    updateCurrentScene((scene) => {
+      const newCharacters = scene.characters.filter(
+        (character) => character.id !== charId
       );
-      return { ...scene, characters: newChars, lines: newLines };
+      const newLines = scene.lines.map((line) =>
+        line.characterId === charId
+          ? { ...line, characterId: newCharacters[0].id }
+          : line
+      );
+
+      return { ...scene, characters: newCharacters, lines: newLines };
     });
-    
-    // Fix active speaker index if it's out of bounds
+
     if (activeSpeakerIndex >= currentScene.characters.length - 1) {
       setActiveSpeakerIndex(0);
     }
-    setCharacterToDelete(null); // Close modal
+    setCharacterToDelete(null);
   };
 
   const exportAsMarkdown = () => {
-    const content = currentScene.lines.map(line => {
-      if (isHeader(line.text)) return line.text;
-      const char = currentScene.characters.find(c => c.id === line.characterId);
-      return `${char?.name || 'Unknown'}: ${line.text}`;
-    }).join('\n\n');
-    
+    const content = currentScene.lines
+      .map((line) => {
+        if (isHeader(line.text)) return line.text;
+        const character = currentScene.characters.find(
+          (candidate) => candidate.id === line.characterId
+        );
+        return `${character?.name || 'Unknown'}: ${line.text}`;
+      })
+      .join('\n\n');
+
     const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${currentScene.name}.md`;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${currentScene.name}.md`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
-  const exportProject = () => {
-    const projectData = {
-      version: 1,
-      scenes,
-      currentSceneId
-    };
-    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `vicarious-project-${new Date().toISOString().split('T')[0]}.vicarious`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (data && data.scenes && Array.isArray(data.scenes)) {
-          setScenes(data.scenes);
-          setCurrentSceneId(data.currentSceneId || data.scenes[0].id);
-          setActiveSpeakerIndex(0);
-        } else {
-          alert('Invalid project file format.');
-        }
-      } catch (err) {
-        alert('Error importing project. Was this a valid .vicarious file?');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = ''; // Reset file input
-  };
-
-  const isHeader = (text: string) => {
-    const t = text.trim();
-    return t.startsWith('[') || t.startsWith('INT.') || t.startsWith('EXT.');
-  };
-
-  // Word counts
   const wordCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    currentScene.characters.forEach(c => counts[c.id] = 0);
+    currentScene.characters.forEach((character) => {
+      counts[character.id] = 0;
+    });
     let total = 0;
 
-    currentScene.lines.forEach(line => {
+    currentScene.lines.forEach((line) => {
       if (isHeader(line.text)) return;
       const words = line.text.trim().split(/\s+/).filter(Boolean).length;
       if (counts[line.characterId] !== undefined) {
@@ -230,15 +313,16 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans">
-      {/* Sidebar */}
       <aside className="w-56 bg-[#FAFAF8] border-r border-stone-200 dark:bg-[#303030] dark:border-white/5 flex flex-col transition-colors duration-200">
         <div className="p-6 pb-2">
           <h1 className="font-serif italic text-xl dark:text-[#D6D3D1]">Vicarious</h1>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-1">
           <div className="flex items-center justify-between mb-3 mt-2 px-2">
-            <span className="text-[10px] font-mono font-semibold text-stone-400 dark:text-zinc-500 uppercase tracking-widest">Scenes</span>
-            <button 
+            <span className="text-[10px] font-mono font-semibold text-stone-400 dark:text-zinc-500 uppercase tracking-widest">
+              Scenes
+            </span>
+            <button
               onClick={addScene}
               className="p-1 -mr-1 hover:bg-stone-200 dark:hover:bg-white/10 rounded transition-colors text-stone-400 hover:text-stone-900 dark:text-zinc-500 dark:hover:text-zinc-100"
               title="Add Scene"
@@ -246,23 +330,33 @@ export default function App() {
               <Plus size={14} />
             </button>
           </div>
-          {scenes.map(scene => (
-            <div 
+          {scenes.map((scene) => (
+            <div
               key={scene.id}
               className={`group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${
-                scene.id === currentSceneId 
-                  ? 'bg-white shadow-sm ring-1 ring-stone-200 text-[#1C1917] dark:bg-[#2A2A2A] dark:ring-white/5 dark:text-[#D6D3D1]' 
+                scene.id === currentSceneId
+                  ? 'bg-white shadow-sm ring-1 ring-stone-200 text-[#1C1917] dark:bg-[#2A2A2A] dark:ring-white/5 dark:text-[#D6D3D1]'
                   : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-[#D6D3D1]'
               }`}
-              onClick={() => setCurrentSceneId(scene.id)}
+              onClick={() => selectScene(scene.id)}
             >
               <div className="flex items-center gap-2 truncate">
-                <ChevronRight size={14} className={scene.id === currentSceneId ? 'text-[#1C1917] dark:text-[#D6D3D1]' : 'text-stone-300 dark:text-zinc-600'} />
+                <ChevronRight
+                  size={14}
+                  className={
+                    scene.id === currentSceneId
+                      ? 'text-[#1C1917] dark:text-[#D6D3D1]'
+                      : 'text-stone-300 dark:text-zinc-600'
+                  }
+                />
                 <span className="truncate text-sm">{scene.name}</span>
               </div>
               {scenes.length > 1 && scene.id === currentSceneId && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); deleteScene(scene.id); }}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteScene(scene.id);
+                  }}
                   className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all text-stone-400 dark:hover:text-red-400"
                 >
                   <Trash2 size={14} />
@@ -271,10 +365,9 @@ export default function App() {
             </div>
           ))}
         </div>
-        
-        {/* Dark Mode Toggle */}
-        <div 
-          className="p-6 pb-4 flex items-center justify-between cursor-pointer group text-stone-500 hover:text-[#1C1917] dark:text-zinc-400 dark:hover:text-[#D6D3D1] transition-colors" 
+
+        <div
+          className="p-6 pb-4 flex items-center justify-between cursor-pointer group text-stone-500 hover:text-[#1C1917] dark:text-zinc-400 dark:hover:text-[#D6D3D1] transition-colors"
           onClick={() => setIsDarkMode(!isDarkMode)}
         >
           <div className="flex items-center gap-2">
@@ -295,45 +388,67 @@ export default function App() {
           </button>
         </div>
 
-        {/* Project Tools */}
         <div className="p-4 border-t border-stone-200 dark:border-white/5 space-y-1">
-          <div className="text-[10px] font-mono font-semibold text-stone-400 dark:text-zinc-500 uppercase tracking-widest mb-3 mt-1 px-2">Project</div>
-          <button 
-            onClick={exportProject}
+          <div className="text-[10px] font-mono font-semibold text-stone-400 dark:text-zinc-500 uppercase tracking-widest mb-2 mt-1 px-2">
+            Project
+          </div>
+          <div
+            className="px-2 pb-2 text-[11px] text-stone-400 dark:text-zinc-500 truncate"
+            title={filePath ?? 'Unsaved project'}
+          >
+            {filePath ? fileNameFromPath(filePath) : 'Unsaved project'}
+            {isDirty ? ' *' : ''}
+          </div>
+          {projectError && (
+            <div className="px-2 py-2 rounded-md text-xs leading-snug text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-500/10">
+              {projectError}
+            </div>
+          )}
+          {projectStatus && !projectError && (
+            <div className="px-2 pb-1 text-[11px] text-stone-400 dark:text-zinc-500 truncate">
+              {projectStatus}
+            </div>
+          )}
+          <button
+            onClick={handleOpenProject}
             className="w-full flex items-center gap-3 p-2 rounded-md text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/5 transition-colors"
           >
-            <DownloadCloud size={16} />
-            Save Backup
+            <FolderOpen size={16} />
+            Open Project
           </button>
-          <label className="w-full flex items-center gap-3 p-2 rounded-md text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/5 transition-colors cursor-pointer">
-            <UploadCloud size={16} />
-            Load Backup
-            <input 
-              type="file" 
-              accept=".vicarious,.json" 
-              className="hidden" 
-              onChange={importProject} 
-            />
-          </label>
+          <button
+            onClick={() => void handleSaveProject()}
+            className="w-full flex items-center gap-3 p-2 rounded-md text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/5 transition-colors"
+          >
+            <Save size={16} />
+            Save
+          </button>
+          <button
+            onClick={() => void handleSaveProjectAs()}
+            className="w-full flex items-center gap-3 p-2 rounded-md text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/5 transition-colors"
+          >
+            <SaveAll size={16} />
+            Save As...
+          </button>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col bg-[#F2F2EF] dark:bg-[#2A2A2A] transition-colors duration-200">
-        {/* Header */}
         <header className="h-16 border-b border-stone-200 dark:border-white/10 flex items-center justify-between px-8 bg-[#F2F2EF]/80 dark:bg-[#2A2A2A]/80 backdrop-blur-sm z-10 sticky top-0 transition-colors duration-200">
           <div className="flex items-center gap-4">
-             <input 
-               value={currentScene.name}
-               onChange={(e) => updateCurrentScene(s => ({ ...s, name: e.target.value }))}
-               className="font-serif italic text-lg bg-transparent border-none outline-none focus:ring-0 w-64 dark:text-[#D6D3D1]"
-             />
+            <input
+              value={currentScene.name}
+              onChange={(event) =>
+                updateCurrentScene((scene) => ({ ...scene, name: event.target.value }))
+              }
+              className="font-serif italic text-lg bg-transparent border-none outline-none focus:ring-0 w-64 dark:text-[#D6D3D1]"
+            />
           </div>
           <div className="flex items-center gap-6">
             <div className="text-xs font-mono text-stone-400 dark:text-zinc-500 uppercase tracking-widest">
               Words: {wordCounts.total}
             </div>
-            <button 
+            <button
               onClick={exportAsMarkdown}
               className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest px-4 py-2 bg-stone-700 dark:bg-white dark:text-stone-900 text-white rounded-md hover:bg-stone-600 dark:hover:bg-zinc-200 transition-colors"
             >
@@ -343,22 +458,23 @@ export default function App() {
           </div>
         </header>
 
-        {/* Editor & Preview Split */}
         <div className="flex-1 flex overflow-hidden">
           <div className="flex-[1.8] flex flex-col min-w-0">
-            <Editor 
-              scene={currentScene} 
+            <Editor
+              scene={currentScene}
               characters={currentScene.characters}
               activeSpeakerIndex={activeSpeakerIndex}
-              onUpdate={(lines) => updateCurrentScene(s => ({ ...s, lines }))}
+              onUpdate={(lines: DialogueLine[]) =>
+                updateCurrentScene((scene) => ({ ...scene, lines }))
+              }
               setActiveSpeakerIndex={setActiveSpeakerIndex}
               isDarkMode={isDarkMode}
               setActiveLineId={setActiveLineId}
             />
           </div>
           <div className="flex-1 hidden md:flex flex-col min-w-0">
-            <Preview 
-              scene={currentScene} 
+            <Preview
+              scene={currentScene}
               characters={currentScene.characters}
               isDarkMode={isDarkMode}
               activeLineId={activeLineId}
@@ -366,61 +482,70 @@ export default function App() {
           </div>
         </div>
 
-        {/* Bottom Bar */}
         <footer className="h-14 border-t border-stone-200 dark:border-white/5 bg-[#FAFAF8] dark:bg-[#303030] flex items-center px-6 gap-8 overflow-visible relative z-20 transition-colors duration-200">
-          {currentScene.characters.map((char, index) => (
-            <div 
-              key={char.id}
+          {currentScene.characters.map((character, index) => (
+            <div
+              key={character.id}
               id={`char-slot-${index}`}
               onClick={() => setActiveSpeakerIndex(index)}
               className={`flex items-center gap-3 shrink-0 cursor-pointer group transition-opacity relative ${
-                index === activeSpeakerIndex ? 'opacity-100' : 'opacity-40 hover:opacity-60 dark:opacity-50 dark:hover:opacity-75'
+                index === activeSpeakerIndex
+                  ? 'opacity-100'
+                  : 'opacity-40 hover:opacity-60 dark:opacity-50 dark:hover:opacity-75'
               }`}
             >
               <div className="relative z-50 flex items-center justify-center w-2.5 h-2.5">
-                <div 
-                  className="w-full h-full rounded-full transition-transform hover:scale-150 cursor-pointer" 
-                  style={{ backgroundColor: getAdaptiveColor(char.color, isDarkMode) }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveColorPicker(activeColorPicker === char.id ? null : char.id);
+                <div
+                  className="w-full h-full rounded-full transition-transform hover:scale-150 cursor-pointer"
+                  style={{
+                    backgroundColor: getAdaptiveColor(character.color, isDarkMode),
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setActiveColorPicker(
+                      activeColorPicker === character.id ? null : character.id
+                    );
                   }}
                 />
-                
-                {activeColorPicker === char.id && (
-                  <div 
+
+                {activeColorPicker === character.id && (
+                  <div
                     className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-[#FAFAF8] dark:bg-[#303030] border border-stone-200 dark:border-white/10 p-2 rounded-lg shadow-xl grid grid-cols-5 gap-2 w-[140px] z-50 cursor-default"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
                   >
-                    {PALETTE_COLORS.map(color => (
+                    {PALETTE_COLORS.map((color) => (
                       <button
                         key={color}
-                        onClick={() => updateCharacterColor(char.id, color)}
+                        onClick={() => updateCharacterColor(character.id, color)}
                         className="w-5 h-5 rounded-full border border-stone-200 dark:border-white/10 hover:scale-110 transition-transform"
                         style={{ backgroundColor: getAdaptiveColor(color, isDarkMode) }}
                         aria-label={`Select color ${color}`}
                       />
                     ))}
-                    {/* Tiny downward arrow for the tooltip-like look */}
                     <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[6px] w-3 h-3 bg-[#FAFAF8] dark:bg-[#303030] border-b border-r border-stone-200 dark:border-white/10 rotate-45" />
                   </div>
                 )}
               </div>
               <div className="flex flex-col">
-                <input 
-                  value={char.name}
-                  onChange={(e) => updateCharacterName(char.id, e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
+                <input
+                  value={character.name}
+                  onChange={(event) =>
+                    updateCharacterName(character.id, event.target.value)
+                  }
+                  onClick={(event) => event.stopPropagation()}
                   className="bg-transparent border-none outline-none focus:ring-0 text-xs font-medium p-0 w-24 h-4 cursor-text text-[#1C1917] dark:text-[#D6D3D1]"
                 />
                 <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500 uppercase">
-                  {wordCounts.perCharacter[char.id]} words
+                  {wordCounts.perCharacter[character.id]} words
                 </span>
               </div>
-              
+
               {currentScene.characters.length > 1 && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCharacterToDelete(character);
+                  }}
                   className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-all absolute right-0 top-1/2 -translate-y-1/2 translate-x-full ml-1"
                 >
                   <Trash2 size={14} />
@@ -428,14 +553,16 @@ export default function App() {
               )}
             </div>
           ))}
-          
+
           {currentScene.characters.length < 4 && (
-            <button 
+            <button
               onClick={addCharacter}
               className="flex items-center gap-2 opacity-40 hover:opacity-100 transition-all text-stone-500 dark:text-zinc-400 dark:hover:text-zinc-200 group"
             >
               <Plus size={14} className="group-hover:rotate-90 transition-transform" />
-              <span className="text-[10px] font-mono uppercase tracking-tight">Add Character</span>
+              <span className="text-[10px] font-mono uppercase tracking-tight">
+                Add Character
+              </span>
             </button>
           )}
 
@@ -445,11 +572,10 @@ export default function App() {
         </footer>
       </main>
 
-      {/* Delete Character Modal */}
       <AnimatePresence>
         {characterToDelete && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -462,9 +588,18 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#FAFAF8] dark:bg-[#303030] rounded-2xl shadow-2xl p-6 z-50 border border-stone-200 dark:border-white/10 transition-colors duration-200"
             >
-              <h3 className="text-lg font-medium text-[#1C1917] dark:text-[#D6D3D1] mb-2">Delete Character?</h3>
+              <h3 className="text-lg font-medium text-[#1C1917] dark:text-[#D6D3D1] mb-2">
+                Delete Character?
+              </h3>
               <p className="text-stone-500 dark:text-zinc-400 text-sm leading-relaxed mb-6">
-                Are you sure you want to delete <strong className="font-semibold">{characterToDelete.name}</strong> from this scene? Any existing lines for this character will be reassigned to {currentScene.characters.find(c => c.id !== characterToDelete.id)?.name}.
+                Are you sure you want to delete{' '}
+                <strong className="font-semibold">{characterToDelete.name}</strong> from
+                this scene? Any existing lines for this character will be reassigned to{' '}
+                {
+                  currentScene.characters.find(
+                    (character) => character.id !== characterToDelete.id
+                  )?.name
+                }.
               </p>
               <div className="flex justify-end gap-3">
                 <button
@@ -488,6 +623,51 @@ export default function App() {
   );
 }
 
-// Sub-components will be moved to their own files if they get too big, but for now I'll define logic placeholders.
-import Editor from './components/Editor';
-import Preview from './components/Preview';
+function isHeader(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('INT.') ||
+    trimmed.startsWith('EXT.')
+  );
+}
+
+function createFallbackCharacter(index: number): Character {
+  const id = `character-${Date.now()}`;
+
+  return {
+    id,
+    name: `Character ${index + 1}`,
+    color: PALETTE_COLORS[index % PALETTE_COLORS.length],
+  };
+}
+
+function fileNameFromPath(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || filePath;
+}
+
+function readErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    const invokeMessage = error.message.match(
+      /^Error invoking remote method '[^']+': Error: (.+)$/
+    );
+
+    return invokeMessage?.[1] ?? error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  return 'Project operation failed.';
+}
+
+function getDesktopApi(): Window['api'] {
+  if (!window.api) {
+    throw new Error(
+      'Desktop API is unavailable. Restart the app with npm run dev so Electron can load the preload script.'
+    );
+  }
+
+  return window.api;
+}

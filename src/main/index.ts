@@ -1,7 +1,17 @@
-import { app, BrowserWindow, shell } from 'electron';
-import { join } from 'node:path';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
+import { IPC_CHANNELS, type ProjectSaveAsRequest, type ProjectSaveRequest } from '../shared/ipc';
+import { normalizeProject } from '../shared/project';
+import type { VicariousProject } from '../shared/projectTypes';
 
 let mainWindow: BrowserWindow | null = null;
+
+const vicariousFileFilters = [
+  { name: 'Vicarious Project', extensions: ['vicarious'] },
+];
+
+type UnknownRecord = Record<string, unknown>;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -14,6 +24,7 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false,
     },
   });
 
@@ -48,3 +59,182 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+ipcMain.handle(IPC_CHANNELS.projectOpen, async () => {
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: 'Open Vicarious Project',
+        properties: ['openFile'],
+        filters: vicariousFileFilters,
+      })
+    : await dialog.showOpenDialog({
+        title: 'Open Vicarious Project',
+        properties: ['openFile'],
+        filters: vicariousFileFilters,
+      });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const filePath = result.filePaths[0];
+  const fallbackTitle = titleFromFilePath(filePath);
+  const contents = await readFile(filePath, 'utf8');
+  const raw = parseProjectJson(contents);
+  const project = normalizeProject(raw, {
+    fallbackTitle,
+    appVersion: app.getVersion(),
+  });
+
+  return { project, filePath };
+});
+
+ipcMain.handle(IPC_CHANNELS.projectSave, async (_event, payload) => {
+  const request = validateProjectSaveRequest(payload);
+  const project = stampProject(
+    normalizeProject(request.project, {
+      fallbackTitle: titleFromProjectOrPath(request.project, request.filePath),
+      appVersion: app.getVersion(),
+    })
+  );
+
+  await writeJsonAtomic(request.filePath, project);
+
+  return { ok: true, project, filePath: request.filePath };
+});
+
+ipcMain.handle(IPC_CHANNELS.projectSaveAs, async (_event, payload) => {
+  const request = validateProjectSaveAsRequest(payload);
+  const normalizedProject = normalizeProject(request.project, {
+    fallbackTitle: titleFromProjectOrPath(request.project, null),
+    appVersion: app.getVersion(),
+  });
+
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, {
+        title: 'Save Vicarious Project',
+        defaultPath: `${safeFileName(normalizedProject.title)}.vicarious`,
+        filters: vicariousFileFilters,
+      })
+    : await dialog.showSaveDialog({
+        title: 'Save Vicarious Project',
+        defaultPath: `${safeFileName(normalizedProject.title)}.vicarious`,
+        filters: vicariousFileFilters,
+      });
+
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+
+  const filePath = ensureVicariousExtension(result.filePath);
+  const project = stampProject(normalizedProject);
+
+  await writeJsonAtomic(filePath, project);
+
+  return { ok: true, project, filePath };
+});
+
+function validateProjectSaveRequest(payload: unknown): ProjectSaveRequest {
+  const record = expectRecord(payload, 'project:save payload');
+
+  return {
+    project: record.project as VicariousProject,
+    filePath: readRequiredString(record.filePath, 'project:save filePath'),
+  };
+}
+
+function validateProjectSaveAsRequest(payload: unknown): ProjectSaveAsRequest {
+  const record = expectRecord(payload, 'project:save-as payload');
+
+  if (!('project' in record)) {
+    throw new Error('Invalid project: project:save-as payload must include project.');
+  }
+
+  return {
+    project: record.project as VicariousProject,
+  };
+}
+
+function stampProject(project: VicariousProject): VicariousProject {
+  return {
+    ...project,
+    metadata: {
+      ...project.metadata,
+      updatedAt: new Date().toISOString(),
+      appVersion: app.getVersion(),
+    },
+  };
+}
+
+async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
+  const targetDirectory = dirname(filePath);
+  const temporaryPath = join(
+    targetDirectory,
+    `.${basename(filePath)}.${process.pid}.${Date.now()}.tmp`
+  );
+  const json = `${JSON.stringify(value, null, 2)}\n`;
+
+  await mkdir(targetDirectory, { recursive: true });
+
+  try {
+    await writeFile(temporaryPath, json, 'utf8');
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+}
+
+function parseProjectJson(contents: string): unknown {
+  try {
+    return JSON.parse(contents);
+  } catch {
+    throw new Error('Invalid Vicarious project: file is not valid JSON.');
+  }
+}
+
+function titleFromProjectOrPath(
+  project: unknown,
+  filePath: string | null
+): string {
+  if (isRecord(project) && typeof project.title === 'string' && project.title.trim()) {
+    return project.title;
+  }
+
+  return filePath ? titleFromFilePath(filePath) : 'Untitled Project';
+}
+
+function titleFromFilePath(filePath: string): string {
+  return basename(filePath, extname(filePath)) || 'Untitled Project';
+}
+
+function ensureVicariousExtension(filePath: string): string {
+  return extname(filePath).toLowerCase() === '.vicarious'
+    ? filePath
+    : `${filePath}.vicarious`;
+}
+
+function safeFileName(value: string): string {
+  const name = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+  return name || 'Untitled Project';
+}
+
+function expectRecord(value: unknown, name: string): UnknownRecord {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid project: ${name} must be an object.`);
+  }
+
+  return value;
+}
+
+function readRequiredString(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`Invalid project: ${name} must be a non-empty string.`);
+  }
+
+  return value;
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

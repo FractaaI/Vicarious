@@ -76,7 +76,9 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
               <div 
                 key={line.id} 
                 className={`py-6 text-center transition-all duration-300 ${activeLineId === line.id ? 'brightness-105' : 'brightness-100'}`}
-                ref={(el) => (lineRefs.current[line.id] = el)}
+                ref={(el) => {
+                  lineRefs.current[line.id] = el;
+                }}
               >
                 <span className="text-sm font-serif italic text-stone-400 dark:text-zinc-500 tracking-wider">
                   {displayText}
@@ -98,7 +100,9 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               key={line.id}
-              ref={(el: HTMLDivElement | null) => (lineRefs.current[line.id] = el)}
+              ref={(el: HTMLDivElement | null) => {
+                lineRefs.current[line.id] = el;
+              }}
               className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isSameSpeaker ? '-mt-4' : 'mt-2'}`}
             >
               {!isSameSpeaker && (

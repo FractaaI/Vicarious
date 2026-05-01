@@ -1,7 +1,20 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  shell,
+  type MenuItemConstructorOptions,
+} from 'electron';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import { IPC_CHANNELS, type ProjectSaveAsRequest, type ProjectSaveRequest } from '../shared/ipc';
+import {
+  IPC_CHANNELS,
+  type IpcChannel,
+  type ProjectSaveAsRequest,
+  type ProjectSaveRequest,
+} from '../shared/ipc';
 import { normalizeProject } from '../shared/project';
 import type { VicariousProject } from '../shared/projectTypes';
 
@@ -45,6 +58,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  createApplicationMenu();
   createWindow();
 
   app.on('activate', () => {
@@ -59,6 +73,63 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+function createApplicationMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin'
+      ? [{ role: 'appMenu' } satisfies MenuItemConstructorOptions]
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Project',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => sendMenuEvent(IPC_CHANNELS.menuNew),
+        },
+        {
+          label: 'Open...',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => sendMenuEvent(IPC_CHANNELS.menuOpen),
+        },
+        { type: 'separator' },
+        {
+          label: 'Save',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendMenuEvent(IPC_CHANNELS.menuSave),
+        },
+        {
+          label: 'Save As...',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => sendMenuEvent(IPC_CHANNELS.menuSaveAs),
+        },
+        { type: 'separator' },
+        {
+          label: 'Export Scene as Markdown...',
+          click: () => sendMenuEvent(IPC_CHANNELS.menuExportMarkdown),
+        },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function sendMenuEvent(channel: IpcChannel): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send(channel);
+}
 
 ipcMain.handle(IPC_CHANNELS.projectOpen, async () => {
   const result = mainWindow

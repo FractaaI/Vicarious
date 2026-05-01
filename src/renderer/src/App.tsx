@@ -167,6 +167,18 @@ export default function App() {
     }
   }, [project]);
 
+  const handleNewProject = useCallback(() => {
+    setProject(createInitialProject());
+    setFilePath(null);
+    setIsDirty(false);
+    setActiveSpeakerIndex(0);
+    setActiveColorPicker(null);
+    setCharacterToDelete(null);
+    setActiveLineId(null);
+    setProjectError(null);
+    setProjectStatus('Created new project');
+  }, []);
+
   const addScene = () => {
     const timestamp = Date.now();
     const newScene: Scene = {
@@ -272,7 +284,7 @@ export default function App() {
     setCharacterToDelete(null);
   };
 
-  const exportAsMarkdown = () => {
+  const exportAsMarkdown = useCallback(() => {
     const content = currentScene.lines
       .map((line) => {
         if (isHeader(line.text)) return line.text;
@@ -290,7 +302,34 @@ export default function App() {
     anchor.download = `${currentScene.name}.md`;
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, [currentScene]);
+
+  useEffect(() => {
+    const api = getDesktopApi();
+    const unsubscribe = [
+      api.onMenuNew(handleNewProject),
+      api.onMenuOpen(() => {
+        void handleOpenProject();
+      }),
+      api.onMenuSave(() => {
+        void handleSaveProject();
+      }),
+      api.onMenuSaveAs(() => {
+        void handleSaveProjectAs();
+      }),
+      api.onMenuExport(exportAsMarkdown),
+    ];
+
+    return () => {
+      unsubscribe.forEach((removeListener) => removeListener());
+    };
+  }, [
+    exportAsMarkdown,
+    handleNewProject,
+    handleOpenProject,
+    handleSaveProject,
+    handleSaveProjectAs,
+  ]);
 
   const wordCounts = useMemo(() => {
     const counts: Record<string, number> = {};

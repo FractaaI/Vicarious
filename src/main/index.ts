@@ -205,6 +205,34 @@ ipcMain.handle(IPC_CHANNELS.projectSaveAs, async (_event, payload) => {
   return { ok: true, project, filePath };
 });
 
+ipcMain.handle(IPC_CHANNELS.dialogConfirmUnsaved, async (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+  const options = {
+    type: 'warning' as const,
+    buttons: ['Save', 'Discard', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    title: 'Unsaved Changes',
+    message: 'Do you want to save changes before continuing?',
+    detail: 'Your unsaved changes will be lost if you discard them.',
+    noLink: true,
+  };
+
+  const result = owner
+    ? await dialog.showMessageBox(owner, options)
+    : await dialog.showMessageBox(options);
+
+  if (result.response === 0) {
+    return 'save';
+  }
+
+  if (result.response === 1) {
+    return 'discard';
+  }
+
+  return 'cancel';
+});
+
 function validateProjectSaveRequest(payload: unknown): ProjectSaveRequest {
   const record = expectRecord(payload, 'project:save payload');
 

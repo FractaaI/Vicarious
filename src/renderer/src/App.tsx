@@ -101,28 +101,6 @@ export default function App() {
     [markDirty]
   );
 
-  const handleOpenProject = useCallback(async () => {
-    setProjectError(null);
-
-    try {
-      const response = await getDesktopApi().openProject();
-
-      if (!response) {
-        return;
-      }
-
-      setProject(response.project);
-      setFilePath(response.filePath);
-      setIsDirty(false);
-      setActiveSpeakerIndex(0);
-      setActiveColorPicker(null);
-      setCharacterToDelete(null);
-      setProjectStatus(`Opened ${fileNameFromPath(response.filePath)}`);
-    } catch (error) {
-      setProjectError(readErrorMessage(error));
-    }
-  }, []);
-
   const handleSaveProject = useCallback(async (): Promise<boolean> => {
     setProjectError(null);
 
@@ -167,7 +145,67 @@ export default function App() {
     }
   }, [project]);
 
-  const handleNewProject = useCallback(() => {
+  const confirmProjectReplacement = useCallback(async (): Promise<boolean> => {
+    if (!isDirty) {
+      return true;
+    }
+
+    const response = await getDesktopApi().confirmUnsavedChanges();
+
+    if (response === 'cancel') {
+      return false;
+    }
+
+    if (response === 'discard') {
+      return true;
+    }
+
+    return handleSaveProject();
+  }, [handleSaveProject, isDirty]);
+
+  const handleOpenProject = useCallback(async () => {
+    setProjectError(null);
+
+    try {
+      const canReplaceProject = await confirmProjectReplacement();
+
+      if (!canReplaceProject) {
+        return;
+      }
+
+      const response = await getDesktopApi().openProject();
+
+      if (!response) {
+        return;
+      }
+
+      setProject(response.project);
+      setFilePath(response.filePath);
+      setIsDirty(false);
+      setActiveSpeakerIndex(0);
+      setActiveColorPicker(null);
+      setCharacterToDelete(null);
+      setActiveLineId(null);
+      setProjectStatus(`Opened ${fileNameFromPath(response.filePath)}`);
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+    }
+  }, [confirmProjectReplacement]);
+
+  const handleNewProject = useCallback(async () => {
+    setProjectError(null);
+
+    try {
+      const canReplaceProject = await confirmProjectReplacement();
+
+      if (!canReplaceProject) {
+        return;
+      }
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+      return;
+    }
+
     setProject(createInitialProject());
     setFilePath(null);
     setIsDirty(false);
@@ -175,9 +213,8 @@ export default function App() {
     setActiveColorPicker(null);
     setCharacterToDelete(null);
     setActiveLineId(null);
-    setProjectError(null);
     setProjectStatus('Created new project');
-  }, []);
+  }, [confirmProjectReplacement]);
 
   const addScene = () => {
     const timestamp = Date.now();
@@ -230,6 +267,10 @@ export default function App() {
   };
 
   const updateCharacterName = (charId: string, name: string) => {
+    if (currentScene.characters.find((character) => character.id === charId)?.name === name) {
+      return;
+    }
+
     updateCurrentScene((scene) => ({
       ...scene,
       characters: scene.characters.map((character) =>
@@ -239,13 +280,21 @@ export default function App() {
   };
 
   const updateCharacterColor = (charId: string, color: string) => {
+    setActiveColorPicker(null);
+
+    if (
+      currentScene.characters.find((character) => character.id === charId)?.color ===
+      color
+    ) {
+      return;
+    }
+
     updateCurrentScene((scene) => ({
       ...scene,
       characters: scene.characters.map((character) =>
         character.id === charId ? { ...character, color } : character
       ),
     }));
-    setActiveColorPicker(null);
   };
 
   const addCharacter = () => {
@@ -307,7 +356,9 @@ export default function App() {
   useEffect(() => {
     const api = getDesktopApi();
     const unsubscribe = [
-      api.onMenuNew(handleNewProject),
+      api.onMenuNew(() => {
+        void handleNewProject();
+      }),
       api.onMenuOpen(() => {
         void handleOpenProject();
       }),

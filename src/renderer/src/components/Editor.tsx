@@ -20,11 +20,13 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
       e.preventDefault();
       const nextSpeakerIndex = (activeSpeakerIndex + 1) % characters.length;
       setActiveSpeakerIndex(nextSpeakerIndex);
-      
-      // Update the current line's speaker
-      const newLines = [...scene.lines];
-      newLines[index] = { ...newLines[index], characterId: characters[nextSpeakerIndex].id };
-      onUpdate(newLines);
+
+      const nextCharacterId = characters[nextSpeakerIndex]?.id;
+      if (nextCharacterId && scene.lines[index].characterId !== nextCharacterId) {
+        const newLines = [...scene.lines];
+        newLines[index] = { ...newLines[index], characterId: nextCharacterId };
+        onUpdate(newLines);
+      }
     }
 
     if (e.key === 'Enter') {

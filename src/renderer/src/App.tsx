@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createBlankProject } from '../../shared/project';
+import { formatSceneAsMarkdown } from '../../shared/markdown';
 import type { Character, DialogueLine, Scene, VicariousProject } from './types';
 import Editor from './components/Editor';
 import Preview from './components/Preview';
@@ -333,24 +334,23 @@ export default function App() {
     setCharacterToDelete(null);
   };
 
-  const exportAsMarkdown = useCallback(() => {
-    const content = currentScene.lines
-      .map((line) => {
-        if (isHeader(line.text)) return line.text;
-        const character = currentScene.characters.find(
-          (candidate) => candidate.id === line.characterId
-        );
-        return `${character?.name || 'Unknown'}: ${line.text}`;
-      })
-      .join('\n\n');
+  const exportAsMarkdown = useCallback(async () => {
+    setProjectError(null);
 
-    const blob = new Blob([content], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${currentScene.name}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      const response = await getDesktopApi().exportMarkdown(
+        formatSceneAsMarkdown(currentScene),
+        currentScene.name
+      );
+
+      if (!response) {
+        return;
+      }
+
+      setProjectStatus(`Exported ${fileNameFromPath(response.filePath)}`);
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+    }
   }, [currentScene]);
 
   useEffect(() => {
@@ -368,7 +368,9 @@ export default function App() {
       api.onMenuSaveAs(() => {
         void handleSaveProjectAs();
       }),
-      api.onMenuExport(exportAsMarkdown),
+      api.onMenuExport(() => {
+        void exportAsMarkdown();
+      }),
     ];
 
     return () => {
@@ -539,7 +541,7 @@ export default function App() {
               Words: {wordCounts.total}
             </div>
             <button
-              onClick={exportAsMarkdown}
+              onClick={() => void exportAsMarkdown()}
               className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest px-4 py-2 bg-stone-700 dark:bg-white dark:text-stone-900 text-white rounded-md hover:bg-stone-600 dark:hover:bg-zinc-200 transition-colors"
             >
               <Download size={14} />

@@ -12,6 +12,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import {
   IPC_CHANNELS,
   type IpcChannel,
+  type ProjectExportMarkdownRequest,
   type ProjectSaveAsRequest,
   type ProjectSaveRequest,
 } from '../shared/ipc';
@@ -23,6 +24,7 @@ let mainWindow: BrowserWindow | null = null;
 const vicariousFileFilters = [
   { name: 'Vicarious Project', extensions: ['vicarious'] },
 ];
+const markdownFileFilters = [{ name: 'Markdown', extensions: ['md'] }];
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -205,6 +207,30 @@ ipcMain.handle(IPC_CHANNELS.projectSaveAs, async (_event, payload) => {
   return { ok: true, project, filePath };
 });
 
+ipcMain.handle(IPC_CHANNELS.projectExportMarkdown, async (event, payload) => {
+  const request = validateProjectExportMarkdownRequest(payload);
+  const owner = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+  const options = {
+    title: 'Export Scene as Markdown',
+    defaultPath: `${safeFileName(request.suggestedName, 'Untitled Scene')}.md`,
+    filters: markdownFileFilters,
+  };
+
+  const result = owner
+    ? await dialog.showSaveDialog(owner, options)
+    : await dialog.showSaveDialog(options);
+
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+
+  const filePath = ensureMarkdownExtension(result.filePath);
+
+  await writeTextAtomic(filePath, request.markdown);
+
+  return { ok: true, filePath };
+});
+
 ipcMain.handle(IPC_CHANNELS.dialogConfirmUnsaved, async (event) => {
   const owner = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
   const options = {
@@ -254,6 +280,20 @@ function validateProjectSaveAsRequest(payload: unknown): ProjectSaveAsRequest {
   };
 }
 
+function validateProjectExportMarkdownRequest(
+  payload: unknown
+): ProjectExportMarkdownRequest {
+  const record = expectRecord(payload, 'project:export-md payload');
+
+  return {
+    markdown: readString(record.markdown, 'project:export-md markdown'),
+    suggestedName: readString(
+      record.suggestedName,
+      'project:export-md suggestedName'
+    ),
+  };
+}
+
 function stampProject(project: VicariousProject): VicariousProject {
   return {
     ...project,
@@ -277,6 +317,24 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
 
   try {
     await writeFile(temporaryPath, json, 'utf8');
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function writeTextAtomic(filePath: string, contents: string): Promise<void> {
+  const targetDirectory = dirname(filePath);
+  const temporaryPath = join(
+    targetDirectory,
+    `.${basename(filePath)}.${process.pid}.${Date.now()}.tmp`
+  );
+
+  await mkdir(targetDirectory, { recursive: true });
+
+  try {
+    await writeFile(temporaryPath, contents, 'utf8');
     await rename(temporaryPath, filePath);
   } catch (error) {
     await unlink(temporaryPath).catch(() => undefined);
@@ -313,9 +371,13 @@ function ensureVicariousExtension(filePath: string): string {
     : `${filePath}.vicarious`;
 }
 
-function safeFileName(value: string): string {
+function ensureMarkdownExtension(filePath: string): string {
+  return extname(filePath).toLowerCase() === '.md' ? filePath : `${filePath}.md`;
+}
+
+function safeFileName(value: string, fallback = 'Untitled Project'): string {
   const name = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
-  return name || 'Untitled Project';
+  return name || fallback;
 }
 
 function expectRecord(value: unknown, name: string): UnknownRecord {
@@ -329,6 +391,14 @@ function expectRecord(value: unknown, name: string): UnknownRecord {
 function readRequiredString(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new Error(`Invalid project: ${name} must be a non-empty string.`);
+  }
+
+  return value;
+}
+
+function readString(value: unknown, name: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid project: ${name} must be a string.`);
   }
 
   return value;

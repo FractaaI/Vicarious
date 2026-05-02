@@ -51,6 +51,7 @@ function createInitialProject(): VicariousProject {
 
 export default function App() {
   const isManualFileOperationInProgressRef = useRef(false);
+  const isCloseRequestInProgressRef = useRef(false);
   const [project, setProject] = useState<VicariousProject>(() => createInitialProject());
   const [filePath, setFilePath] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -220,6 +221,27 @@ export default function App() {
 
     return handleSaveProject();
   }, [handleSaveProject, isDirty]);
+
+  const handleCloseRequest = useCallback(async () => {
+    if (isCloseRequestInProgressRef.current) {
+      return;
+    }
+
+    isCloseRequestInProgressRef.current = true;
+    setProjectError(null);
+
+    try {
+      const canClose = await confirmProjectReplacement();
+
+      if (canClose) {
+        await getDesktopApi().approveClose();
+      }
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+    } finally {
+      isCloseRequestInProgressRef.current = false;
+    }
+  }, [confirmProjectReplacement]);
 
   const handleOpenProject = useCallback(async () => {
     if (isRecoveryBlocked) {
@@ -498,6 +520,9 @@ export default function App() {
       api.onMenuExport(() => {
         void exportAsMarkdown();
       }),
+      api.onRequestClose(() => {
+        void handleCloseRequest();
+      }),
     ];
 
     return () => {
@@ -507,6 +532,7 @@ export default function App() {
     exportAsMarkdown,
     handleNewProject,
     handleOpenProject,
+    handleCloseRequest,
     handleSaveProject,
     handleSaveProjectAs,
   ]);

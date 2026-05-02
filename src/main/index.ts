@@ -21,6 +21,7 @@ import { normalizeProject } from '../shared/project';
 import type { RecoveryFile, VicariousProject } from '../shared/projectTypes';
 
 let mainWindow: BrowserWindow | null = null;
+let isMainWindowCloseApproved = false;
 let recoveryOperationQueue: Promise<void> = Promise.resolve();
 
 const vicariousFileFilters = [
@@ -32,6 +33,8 @@ const recoveryFileName = 'recovery.vicarious';
 type UnknownRecord = Record<string, unknown>;
 
 function createWindow(): void {
+  isMainWindowCloseApproved = false;
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -53,6 +56,20 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  mainWindow.on('close', (event) => {
+    if (isMainWindowCloseApproved) {
+      return;
+    }
+
+    event.preventDefault();
+    mainWindow?.webContents.send(IPC_CHANNELS.appRequestClose);
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    isMainWindowCloseApproved = false;
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -326,6 +343,17 @@ ipcMain.handle(IPC_CHANNELS.recoveryRead, async () => {
 
 ipcMain.handle(IPC_CHANNELS.recoveryDiscard, async () => {
   await enqueueRecoveryOperation(discardRecoveryFileQuietly);
+});
+
+ipcMain.handle(IPC_CHANNELS.appCloseApproved, (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+
+  if (!owner || owner !== mainWindow || owner.isDestroyed()) {
+    return;
+  }
+
+  isMainWindowCloseApproved = true;
+  owner.close();
 });
 
 function validateProjectSaveRequest(payload: unknown): ProjectSaveRequest {

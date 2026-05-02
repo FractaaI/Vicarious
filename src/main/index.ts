@@ -54,7 +54,12 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url).catch((error) => {
+        console.warn('Failed to open external URL.', error);
+      });
+    }
+
     return { action: 'deny' };
   });
 
@@ -540,6 +545,15 @@ function ensureMarkdownExtension(filePath: string): string {
 function safeFileName(value: string, fallback = 'Untitled Project'): string {
   const name = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
   return name || fallback;
+}
+
+function isSafeExternalUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 function expectRecord(value: unknown, name: string): UnknownRecord {

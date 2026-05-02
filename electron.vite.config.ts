@@ -2,11 +2,8 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import { resolve } from 'node:path';
-import { loadEnv } from 'vite';
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-
+export default defineConfig(() => {
   return {
     main: {
       plugins: [externalizeDepsPlugin()],
@@ -17,9 +14,6 @@ export default defineConfig(({ mode }) => {
     renderer: {
       root: 'src/renderer',
       plugins: [react(), tailwindcss()],
-      define: {
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      },
       resolve: {
         alias: {
           '@': resolve(__dirname, 'src/renderer/src'),

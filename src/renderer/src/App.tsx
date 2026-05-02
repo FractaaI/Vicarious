@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronRight,
   Download,
@@ -13,7 +13,13 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { createBlankProject } from '../../shared/project';
 import { formatSceneAsMarkdown } from '../../shared/markdown';
-import type { Character, DialogueLine, Scene, VicariousProject } from './types';
+import type {
+  Character,
+  DialogueLine,
+  RecoveryFile,
+  Scene,
+  VicariousProject,
+} from './types';
 import Editor from './components/Editor';
 import Preview from './components/Preview';
 import { PALETTE_COLORS, getAdaptiveColor } from './utils/colors';
@@ -44,9 +50,13 @@ function createInitialProject(): VicariousProject {
 }
 
 export default function App() {
+  const isManualFileOperationInProgressRef = useRef(false);
   const [project, setProject] = useState<VicariousProject>(() => createInitialProject());
   const [filePath, setFilePath] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [pendingRecovery, setPendingRecovery] = useState<RecoveryFile | null>(null);
+  const [isRecoveryCheckComplete, setIsRecoveryCheckComplete] = useState(false);
+  const [isRecoveryActionPending, setIsRecoveryActionPending] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [projectStatus, setProjectStatus] = useState<string | null>(null);
   const [activeSpeakerIndex, setActiveSpeakerIndex] = useState(0);
@@ -79,10 +89,41 @@ export default function App() {
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    getDesktopApi()
+      .readRecovery()
+      .then((recovery) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setPendingRecovery(recovery);
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setProjectError(readErrorMessage(error));
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsRecoveryCheckComplete(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const currentScene = useMemo(
     () => scenes.find((scene) => scene.id === currentSceneId) || scenes[0],
     [scenes, currentSceneId]
   );
+  const isRecoveryBlocked = !isRecoveryCheckComplete || pendingRecovery !== null;
 
   const markDirty = useCallback(() => {
     setIsDirty(true);
@@ -103,6 +144,11 @@ export default function App() {
   );
 
   const handleSaveProject = useCallback(async (): Promise<boolean> => {
+    if (isRecoveryBlocked) {
+      return false;
+    }
+
+    isManualFileOperationInProgressRef.current = true;
     setProjectError(null);
 
     try {
@@ -117,15 +163,23 @@ export default function App() {
       setProject(response.project);
       setFilePath(response.filePath);
       setIsDirty(false);
+      await discardRecoverySilently();
       setProjectStatus(`Saved ${fileNameFromPath(response.filePath)}`);
       return true;
     } catch (error) {
       setProjectError(readErrorMessage(error));
       return false;
+    } finally {
+      isManualFileOperationInProgressRef.current = false;
     }
-  }, [filePath, project]);
+  }, [filePath, isRecoveryBlocked, project]);
 
   const handleSaveProjectAs = useCallback(async (): Promise<boolean> => {
+    if (isRecoveryBlocked) {
+      return false;
+    }
+
+    isManualFileOperationInProgressRef.current = true;
     setProjectError(null);
 
     try {
@@ -138,13 +192,16 @@ export default function App() {
       setProject(response.project);
       setFilePath(response.filePath);
       setIsDirty(false);
+      await discardRecoverySilently();
       setProjectStatus(`Saved ${fileNameFromPath(response.filePath)}`);
       return true;
     } catch (error) {
       setProjectError(readErrorMessage(error));
       return false;
+    } finally {
+      isManualFileOperationInProgressRef.current = false;
     }
-  }, [project]);
+  }, [isRecoveryBlocked, project]);
 
   const confirmProjectReplacement = useCallback(async (): Promise<boolean> => {
     if (!isDirty) {
@@ -165,6 +222,10 @@ export default function App() {
   }, [handleSaveProject, isDirty]);
 
   const handleOpenProject = useCallback(async () => {
+    if (isRecoveryBlocked) {
+      return;
+    }
+
     setProjectError(null);
 
     try {
@@ -187,13 +248,18 @@ export default function App() {
       setActiveColorPicker(null);
       setCharacterToDelete(null);
       setActiveLineId(null);
+      await discardRecoverySilently();
       setProjectStatus(`Opened ${fileNameFromPath(response.filePath)}`);
     } catch (error) {
       setProjectError(readErrorMessage(error));
     }
-  }, [confirmProjectReplacement]);
+  }, [confirmProjectReplacement, isRecoveryBlocked]);
 
   const handleNewProject = useCallback(async () => {
+    if (isRecoveryBlocked) {
+      return;
+    }
+
     setProjectError(null);
 
     try {
@@ -214,8 +280,31 @@ export default function App() {
     setActiveColorPicker(null);
     setCharacterToDelete(null);
     setActiveLineId(null);
+    await discardRecoverySilently();
     setProjectStatus('Created new project');
-  }, [confirmProjectReplacement]);
+  }, [confirmProjectReplacement, isRecoveryBlocked]);
+
+  useEffect(() => {
+    if (!isRecoveryCheckComplete || pendingRecovery || !isDirty) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (isManualFileOperationInProgressRef.current) {
+        return;
+      }
+
+      getDesktopApi()
+        .writeRecovery(project, filePath, true)
+        .catch((error) => {
+          console.warn('Failed to write recovery file.', error);
+        });
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [filePath, isDirty, isRecoveryCheckComplete, pendingRecovery, project]);
 
   const addScene = () => {
     const timestamp = Date.now();
@@ -335,6 +424,10 @@ export default function App() {
   };
 
   const exportAsMarkdown = useCallback(async () => {
+    if (isRecoveryBlocked) {
+      return;
+    }
+
     setProjectError(null);
 
     try {
@@ -351,7 +444,41 @@ export default function App() {
     } catch (error) {
       setProjectError(readErrorMessage(error));
     }
-  }, [currentScene]);
+  }, [currentScene, isRecoveryBlocked]);
+
+  const restoreRecovery = useCallback(() => {
+    if (!pendingRecovery) {
+      return;
+    }
+
+    setIsRecoveryActionPending(true);
+    setProject(pendingRecovery.project);
+    setFilePath(null);
+    setIsDirty(true);
+    setActiveSpeakerIndex(0);
+    setActiveColorPicker(null);
+    setCharacterToDelete(null);
+    setActiveLineId(null);
+    setProjectError(null);
+    setProjectStatus('Restored unsaved work');
+    setPendingRecovery(null);
+    setIsRecoveryActionPending(false);
+  }, [pendingRecovery]);
+
+  const discardRecovery = useCallback(async () => {
+    setIsRecoveryActionPending(true);
+    setProjectError(null);
+
+    try {
+      await getDesktopApi().discardRecovery();
+      setPendingRecovery(null);
+      setProjectStatus('Discarded recovered work');
+    } catch (error) {
+      setProjectError(readErrorMessage(error));
+    } finally {
+      setIsRecoveryActionPending(false);
+    }
+  }, []);
 
   useEffect(() => {
     const api = getDesktopApi();
@@ -402,6 +529,51 @@ export default function App() {
 
     return { perCharacter: counts, total };
   }, [currentScene]);
+
+  if (!isRecoveryCheckComplete) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F2F2EF] font-sans text-sm text-stone-500 dark:bg-[#2A2A2A] dark:text-zinc-400">
+        Checking for recovered work...
+      </div>
+    );
+  }
+
+  if (pendingRecovery) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F2F2EF] px-6 font-sans dark:bg-[#2A2A2A]">
+        <div className="w-full max-w-sm rounded-lg border border-stone-200 bg-[#FAFAF8] p-6 shadow-xl dark:border-white/10 dark:bg-[#303030]">
+          <h1 className="mb-2 text-lg font-medium text-[#1C1917] dark:text-[#D6D3D1]">
+            Recovered Unsaved Work
+          </h1>
+          <p className="mb-6 text-sm leading-relaxed text-stone-500 dark:text-zinc-400">
+            Vicarious found unsaved work from{' '}
+            {formatRecoveryTime(pendingRecovery.savedAt)}.
+          </p>
+          {projectError && (
+            <div className="mb-4 rounded-md bg-red-50 px-3 py-2 text-xs leading-snug text-red-600 dark:bg-red-500/10 dark:text-red-300">
+              {projectError}
+            </div>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => void discardRecovery()}
+              disabled={isRecoveryActionPending}
+              className="rounded-md px-4 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/5"
+            >
+              Discard
+            </button>
+            <button
+              onClick={restoreRecovery}
+              disabled={isRecoveryActionPending}
+              className="rounded-md bg-stone-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-600 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-stone-900 dark:hover:bg-zinc-200"
+            >
+              Restore
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden font-sans">
@@ -752,6 +924,24 @@ function readErrorMessage(error: unknown): string {
   }
 
   return 'Project operation failed.';
+}
+
+async function discardRecoverySilently(): Promise<void> {
+  try {
+    await getDesktopApi().discardRecovery();
+  } catch (error) {
+    console.warn('Failed to discard recovery file.', error);
+  }
+}
+
+function formatRecoveryTime(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'a previous session';
+  }
+
+  return date.toLocaleString();
 }
 
 function getDesktopApi(): Window['api'] {

@@ -15,16 +15,19 @@ import {
   type ProjectExportMarkdownRequest,
   type ProjectSaveAsRequest,
   type ProjectSaveRequest,
+  type RecoveryWriteRequest,
 } from '../shared/ipc';
 import { normalizeProject } from '../shared/project';
-import type { VicariousProject } from '../shared/projectTypes';
+import type { RecoveryFile, VicariousProject } from '../shared/projectTypes';
 
 let mainWindow: BrowserWindow | null = null;
+let recoveryOperationQueue: Promise<void> = Promise.resolve();
 
 const vicariousFileFilters = [
   { name: 'Vicarious Project', extensions: ['vicarious'] },
 ];
 const markdownFileFilters = [{ name: 'Markdown', extensions: ['md'] }];
+const recoveryFileName = 'recovery.vicarious';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -172,6 +175,7 @@ ipcMain.handle(IPC_CHANNELS.projectSave, async (_event, payload) => {
   );
 
   await writeJsonAtomic(request.filePath, project);
+  await enqueueRecoveryOperation(discardRecoveryFileQuietly);
 
   return { ok: true, project, filePath: request.filePath };
 });
@@ -203,6 +207,7 @@ ipcMain.handle(IPC_CHANNELS.projectSaveAs, async (_event, payload) => {
   const project = stampProject(normalizedProject);
 
   await writeJsonAtomic(filePath, project);
+  await enqueueRecoveryOperation(discardRecoveryFileQuietly);
 
   return { ok: true, project, filePath };
 });
@@ -259,6 +264,70 @@ ipcMain.handle(IPC_CHANNELS.dialogConfirmUnsaved, async (event) => {
   return 'cancel';
 });
 
+ipcMain.handle(IPC_CHANNELS.recoveryWrite, async (_event, payload) => {
+  await enqueueRecoveryOperation(async () => {
+    try {
+      const request = validateRecoveryWriteRequest(payload);
+
+      if (!request.isDirty) {
+        await discardRecoveryFileQuietly();
+        return;
+      }
+
+      const project = normalizeProject(request.project, {
+        fallbackTitle: titleFromProjectOrPath(request.project, request.filePath),
+        appVersion: app.getVersion(),
+      });
+      const recovery: RecoveryFile = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        filePath: request.filePath,
+        isDirty: true,
+        project,
+      };
+
+      await writeJsonAtomic(getRecoveryFilePath(), recovery);
+    } catch (error) {
+      console.warn('Failed to write recovery file.', error);
+    }
+  });
+});
+
+ipcMain.handle(IPC_CHANNELS.recoveryRead, async () => {
+  const recoveryFilePath = getRecoveryFilePath();
+  let contents: string;
+
+  try {
+    contents = await readFile(recoveryFilePath, 'utf8');
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return null;
+    }
+
+    console.warn('Failed to read recovery file.', error);
+    return null;
+  }
+
+  try {
+    const recovery = validateRecoveryFile(parseProjectJson(contents));
+
+    if (recovery.isDirty !== true) {
+      await discardRecoveryFileQuietly();
+      return null;
+    }
+
+    return recovery;
+  } catch (error) {
+    console.warn('Discarding invalid recovery file.', error);
+    await discardRecoveryFileQuietly();
+    return null;
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.recoveryDiscard, async () => {
+  await enqueueRecoveryOperation(discardRecoveryFileQuietly);
+});
+
 function validateProjectSaveRequest(payload: unknown): ProjectSaveRequest {
   const record = expectRecord(payload, 'project:save payload');
 
@@ -291,6 +360,45 @@ function validateProjectExportMarkdownRequest(
       record.suggestedName,
       'project:export-md suggestedName'
     ),
+  };
+}
+
+function validateRecoveryWriteRequest(payload: unknown): RecoveryWriteRequest {
+  const record = expectRecord(payload, 'recovery:write payload');
+
+  if (!('project' in record)) {
+    throw new Error('Invalid project: recovery:write payload must include project.');
+  }
+
+  return {
+    project: record.project as VicariousProject,
+    filePath: readNullableString(record.filePath, 'recovery:write filePath'),
+    isDirty: readBoolean(record.isDirty, 'recovery:write isDirty'),
+  };
+}
+
+function validateRecoveryFile(raw: unknown): RecoveryFile {
+  const record = expectRecord(raw, 'recovery file');
+
+  if (record.version !== 1) {
+    throw new Error('Invalid recovery file: version must be 1.');
+  }
+
+  const filePath = readNullableString(record.filePath, 'recovery filePath');
+
+  if (!('project' in record)) {
+    throw new Error('Invalid recovery file: project is required.');
+  }
+
+  return {
+    version: 1,
+    savedAt: readRequiredString(record.savedAt, 'recovery savedAt'),
+    filePath,
+    isDirty: readBoolean(record.isDirty, 'recovery isDirty'),
+    project: normalizeProject(record.project, {
+      fallbackTitle: titleFromProjectOrPath(record.project, filePath),
+      appVersion: app.getVersion(),
+    }),
   };
 }
 
@@ -340,6 +448,32 @@ async function writeTextAtomic(filePath: string, contents: string): Promise<void
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
   }
+}
+
+async function discardRecoveryFileQuietly(): Promise<void> {
+  try {
+    await unlink(getRecoveryFilePath());
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return;
+    }
+
+    console.warn('Failed to discard recovery file.', error);
+  }
+}
+
+function getRecoveryFilePath(): string {
+  return join(app.getPath('userData'), recoveryFileName);
+}
+
+function enqueueRecoveryOperation(operation: () => Promise<void>): Promise<void> {
+  const nextOperation = recoveryOperationQueue
+    .catch(() => undefined)
+    .then(operation);
+
+  recoveryOperationQueue = nextOperation.catch(() => undefined);
+
+  return nextOperation;
 }
 
 function parseProjectJson(contents: string): unknown {
@@ -404,6 +538,30 @@ function readString(value: unknown, name: string): string {
   return value;
 }
 
+function readNullableString(value: unknown, name: string): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid project: ${name} must be a string or null.`);
+  }
+
+  return value;
+}
+
+function readBoolean(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid project: ${name} must be a boolean.`);
+  }
+
+  return value;
+}
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error;
 }

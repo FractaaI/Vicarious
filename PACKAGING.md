@@ -28,6 +28,6 @@ The current configuration uses unpacked directory targets only. Code signing, no
 
 The repository currently uses Electron 35. `npm audit` reports a high-severity Electron vulnerability that requires a separate major Electron upgrade milestone.
 
-No custom app icon is configured yet because the repository does not currently include a production icon asset; packaged builds use Electron's default icon.
+Windows packaging uses the app icon at `build/icon.ico`.
 
 `demo.vicarious` is a development sample file and is explicitly excluded from packaged app files.

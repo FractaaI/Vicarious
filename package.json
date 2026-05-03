@@ -54,9 +54,11 @@
     "extraMetadata": {
       "main": "out/main/index.js"
     },
+    "afterPack": "electron-builder.after-pack.cjs",
     "asar": true,
     "npmRebuild": false,
     "win": {
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "forceCodeSigning": false,
       "target": [

@@ -18,6 +18,13 @@ This writes platform-specific output to `release/`. On Windows, the runnable app
 release/win-unpacked/Vicarious.exe
 ```
 
+Before rerunning packaging on Windows, close the packaged Vicarious app and any File Explorer windows open inside `release/`. If `npm run package` fails because `release/win-unpacked/resources/app.asar` or another release file is locked, close those handles and rerun the command. For verification while the default output remains locked, use a unique electron-builder output directory, for example:
+
+```sh
+npm run build
+npx electron-builder --dir --config.directories.output=release-verify
+```
+
 Run a production build and let `electron-builder` create its configured distribution targets:
 
 ```sh

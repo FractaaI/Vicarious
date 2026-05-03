@@ -2,6 +2,8 @@ node_modules/
 build/
 dist/
 release/
+release-icon-polish*/
+release-verify*/
 out/
 coverage/
 .DS_Store

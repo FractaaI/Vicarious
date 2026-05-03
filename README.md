@@ -101,6 +101,10 @@ npm run build
 
 The repository includes `demo.vicarious` for local development testing. Open it from the app with **File -> Open...**.
 
+## Security Posture
+
+The renderer runs with Node integration disabled, context isolation enabled, and Chromium sandboxing enabled. Filesystem access stays in the main process and is exposed to the renderer only through the typed preload `window.api` bridge.
+
 ---
 
 ## Packaging

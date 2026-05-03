@@ -10,6 +10,14 @@ export default defineConfig(() => {
     },
     preload: {
       plugins: [externalizeDepsPlugin()],
+      build: {
+        rollupOptions: {
+          output: {
+            format: 'cjs' as const,
+            entryFileNames: '[name].cjs',
+          },
+        },
+      },
     },
     renderer: {
       root: 'src/renderer',

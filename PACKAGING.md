@@ -2,6 +2,8 @@
 
 Vicarious uses `electron-builder` for local desktop packaging.
 
+The packaging setup exists for local unpacked builds and has previously passed local packaging verification. Re-run the packaging command before distributing a fresh build.
+
 ## Local Commands
 
 Run a production build and create an unpacked app:
@@ -23,6 +25,8 @@ npm run dist
 ```
 
 The current configuration uses unpacked directory targets only. Code signing, notarization, auto-update, and publishing are intentionally not configured.
+
+The repository currently uses Electron 35. `npm audit` reports a high-severity Electron vulnerability that requires a separate major Electron upgrade milestone.
 
 No custom app icon is configured yet because the repository does not currently include a production icon asset; packaged builds use Electron's default icon.
 

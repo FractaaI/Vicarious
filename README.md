@@ -1,8 +1,8 @@
 # Vicarious
 
-Vicarious is a keyboard-first writing space for dialogues.
-I built it for my personal use, to help me writing dialogues for visual-novel ish video games.
-Feel free to use it and adapt it as you want.
+Vicarious is a desktop writing space for visual novel dialogue.
+
+It is built for fast keyboard-first scene writing: the left side is the script editor, and the right side renders a visual chat-like preview of the current scene.
 
 <img width="1912" height="920" alt="screenshot" src="https://github.com/user-attachments/assets/177b21fc-89cc-430c-aa59-65ef586a2bd7" />
 
@@ -10,45 +10,128 @@ Feel free to use it and adapt it as you want.
 
 ## Features
 
-- **Real-Time Visual Preview**: A split-screen design where the left side is your script editor and the right side renders a visual, chat-like preview of the conversation.
-- **Frictionless Input**: Type dialogue at the speed of thought. No clicking text boxes or selecting options from dropdowns—just use your keyboard.
-- **Character Management**: Color-code and define up to four distinct characters per scene. Track word counts for each character automatically. 
-- **Scene Organization**: Keep your game's script organized by breaking it down into individual scenes.
-- **Stage Directions**: Type `[...]`, `INT.`, or `EXT.` to automatically format a line as a scene header or action description instead of spoken dialogue.
-- **Local First**: No accounts to set up. Everything saves automatically and instantly to your browser's local storage. (Just in case, export everytime you finish just to have a local save)
-- **Import / Export**: Save complete `.vicarious` project backups, or export your finished scenes directly to Markdown for implementation in your game engine or script editor.
+- **Desktop App**: Vicarious is now an Electron desktop app. Browser mode and browser storage are no longer supported.
+- **Keyboard-First Writing**: Type dialogue quickly with `Enter` for new lines and `Tab` to cycle speakers.
+- **Visual Preview**: Review the current scene in a rendered conversation preview while you write.
+- **Character Management**: Define and color-code up to four characters per scene, with per-character word counts.
+- **Scene Organization**: Break a project into scenes and switch between them without marking the project dirty.
+- **Stage Directions**: Type `[...]`, `INT.`, or `EXT.` to format a line as a scene header or action description instead of spoken dialogue.
+- **Native File Flow**: Open, Save, Save As, and Export use native desktop dialogs.
+- **Markdown Export**: Export the current scene to Markdown for use in a game engine, script editor, or other writing tools.
 
 ---
 
-## User Flow
+## File Behavior
 
-1. **Set the Stage**: Create a new scene and set up your characters in the bottom bar (click their circle to pick a color, click their name to rename them).
-2. **Start Typing**: Write your dialogue. Press `Enter` to break to a new line, and use `Tab` to cycle to the next speaking character.
-3. **Add Context**: Need to describe the setting or an action? Type a bracket `[Like this]` and it formats as a neutral stage direction.
-4. **Review**: Watch the conversation take shape in the right-hand panel, ensuring the back-and-forth pacing feels natural.
-5. **Export**: Click the Export button to grab a Markdown file of your current scene, ready to copy into your engine.
+Vicarious projects are plain JSON `.vicarious` files. Project files store the project title, scenes, current scene, and metadata.
+
+Use **File -> Save** to write changes to the current `.vicarious` file. If the project has not been saved before, Save will route through **Save As**. Use **File -> Save As** to choose a new `.vicarious` file path.
+
+Vicarious uses explicit saves. It does not continuously overwrite your project file in the background.
+
+### Recovery Autosave
+
+When a project has unsaved changes, Vicarious writes a recovery autosave to the app's user data folder after a short debounce. This recovery file is separate from the project file and is used only for crash or interrupted-session recovery.
+
+On startup, if a valid dirty recovery file exists, Vicarious offers to restore or discard it. Restoring opens the recovered project as unsaved, with no project file path attached, so you can choose where to save it.
+
+Successful manual Save or Save As removes the recovery file.
+
+### Browser Data
+
+Browser `localStorage` migration is not supported. If you used the old browser version, export your work from that version first, then open the exported `.vicarious` file in the desktop app.
 
 ---
 
-## Keyboard is the interface
+## Markdown Export
+
+Use **File -> Export Scene as Markdown...** to export only the current scene.
+
+Markdown export uses a native save dialog, suggests a filename from the current scene name, and does not mark the project dirty.
+
+---
+
+## Keyboard
 
 Vicarious is meant to disappear once learned.
 
-- **Enter** — write a new line of dialogue  
-- **Tab** — switch speaker within the scene  
-- **Backspace** — remove an empty line / step back in structure  
-- **↑ / ↓** — move through dialogue lines 
+- **Enter**: write a new line of dialogue
+- **Tab**: switch speaker within the scene
+- **Backspace**: remove an empty line or step back in structure
+- **Up / Down**: move through dialogue lines
+
+File shortcuts are handled by the native application menu:
+
+- **Ctrl+N / Cmd+N**: New Project
+- **Ctrl+O / Cmd+O**: Open
+- **Ctrl+S / Cmd+S**: Save
+- **Ctrl+Shift+S / Cmd+Shift+S**: Save As
 
 ---
 
+## Development
 
-## Getting Started
+Install dependencies:
 
-1. Clone this repository.
-2. Run `npm install` to install dependencies.
-3. Run `npm run dev` to start the development server.
-4. Open your browser to the local URL provided by Vite.
-5. **Try the Demo**: Load the `demo.vicarious` file included in this repository using the "Load Backup" button in the bottom left sidebar to instantly try out a pre-written sample scene.
+```sh
+npm install
+```
+
+Start the Electron development app:
+
+```sh
+npm run dev
+```
+
+Run TypeScript checks:
+
+```sh
+npm run typecheck
+```
+
+Build the Electron main, preload, and renderer bundles:
+
+```sh
+npm run build
+```
+
+`npm run lint` currently runs the same TypeScript check.
+
+The repository includes `demo.vicarious` for local development testing. Open it from the app with **File -> Open...**.
+
+---
+
+## Packaging
+
+Packaging is configured with `electron-builder` for local unpacked desktop builds. The current setup has previously passed local packaging verification.
+
+Create an unpacked app:
+
+```sh
+npm run package
+```
+
+Create the configured distribution output:
+
+```sh
+npm run dist
+```
+
+Packaging output is written to `release/`. On Windows, the runnable unpacked app is expected at:
+
+```txt
+release/win-unpacked/Vicarious.exe
+```
+
+See [PACKAGING.md](PACKAGING.md) for packaging details, exclusions, and deferred release work.
+
+---
+
+## Current Limitations
+
+- Code signing, notarization, auto-update, and public release publishing are deferred.
+- No custom production app icon is configured yet.
+- `npm audit` still reports a high-severity Electron vulnerability. Fixing it requires a separate major Electron upgrade milestone.
 
 ## License
 

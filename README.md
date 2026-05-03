@@ -2,7 +2,9 @@
 
 Vicarious is a desktop writing space for visual novel dialogue.
 
-It is built for fast keyboard-first scene writing: the left side is the script editor, and the right side renders a visual chat-like preview of the current scene.
+It is an Electron desktop app built for fast keyboard-first scene writing: the left side is the script editor, and the right side renders a visual chat-like preview of the current scene.
+
+Vicarious is currently a personal-use, early desktop build. It is useful for local writing workflows, but public release hardening such as signing, notarization, auto-update, and release publishing is not in place yet.
 
 <img width="1912" height="920" alt="screenshot" src="https://github.com/user-attachments/assets/177b21fc-89cc-430c-aa59-65ef586a2bd7" />
 
@@ -127,12 +129,17 @@ See [PACKAGING.md](PACKAGING.md) for packaging details, exclusions, and deferred
 
 Windows packaging uses the app icon at `build/icon.ico`.
 
+### Unsigned Windows Builds
+
+Windows builds produced by the current local packaging setup are unsigned. If packaged artifacts are shared, Windows SmartScreen or antivirus tooling may warn that the app is from an unknown publisher. Users should only run builds from a source they trust.
+
 ---
 
 ## Current Limitations
 
+- Vicarious is a personal-use, early desktop build.
 - Code signing, notarization, auto-update, and public release publishing are deferred.
 
 ## License
 
-MIT
+No project license has been selected yet. Add a `LICENSE` file before treating the repository as openly licensed or accepting external contributions.

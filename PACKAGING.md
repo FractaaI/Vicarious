@@ -33,6 +33,12 @@ npm run dist
 
 The current configuration uses unpacked directory targets only. Code signing, notarization, auto-update, and publishing are intentionally not configured.
 
+## Unsigned Windows Builds
+
+Windows builds produced by this setup are unsigned because code signing is intentionally deferred. If you share packaged artifacts, recipients may see Windows SmartScreen or antivirus warnings that the app is from an unknown publisher.
+
+Only share packaged builds with users who understand this early-build status, and ask them to run builds only from a source they trust.
+
 The repository currently uses Electron 41.5.0. `npm audit` reports no known vulnerabilities after the Electron runtime upgrade.
 
 Windows packaging uses the app icon at `build/icon.ico`.

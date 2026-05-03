@@ -20,7 +20,7 @@ export default defineConfig(() => {
         },
       },
       server: {
-        // HMR is disabled in AI Studio via DISABLE_HMR env var.
+        // HMR can be disabled with DISABLE_HMR for development environments where file watching is noisy.
         // Do not modify - file watching is disabled to prevent flickering during agent edits.
         hmr: process.env.DISABLE_HMR !== 'true',
       },

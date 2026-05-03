@@ -59,11 +59,23 @@
     "npmRebuild": false,
     "win": {
       "icon": "build/icon.ico",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "signAndEditExecutable": false,
       "forceCodeSigning": false,
       "target": [
+        "nsis",
         "dir"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "identity": null,

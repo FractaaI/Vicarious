@@ -109,7 +109,7 @@ The renderer runs with Node integration disabled, context isolation enabled, and
 
 ## Packaging
 
-Packaging is configured with `electron-builder` for local unpacked desktop builds. The current setup has previously passed local packaging verification.
+Packaging is configured with `electron-builder` for local Windows installer and unpacked desktop builds. The current setup has previously passed local packaging verification.
 
 Create an unpacked app:
 
@@ -117,7 +117,7 @@ Create an unpacked app:
 npm run package
 ```
 
-Create the configured distribution output:
+Create the configured Windows installer and unpacked distribution output:
 
 ```sh
 npm run dist
@@ -129,7 +129,7 @@ Packaging output is written to `release/`. On Windows, the runnable unpacked app
 release/win-unpacked/Vicarious.exe
 ```
 
-See [PACKAGING.md](PACKAGING.md) for packaging details, exclusions, and deferred release work.
+See [PACKAGING.md](PACKAGING.md) for installer details, output paths, exclusions, uninstall notes, and deferred release work.
 
 Windows packaging uses the app icon at `build/icon.ico`.
 

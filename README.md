@@ -132,7 +132,6 @@ Windows packaging uses the app icon at `build/icon.ico`.
 ## Current Limitations
 
 - Code signing, notarization, auto-update, and public release publishing are deferred.
-- `npm audit` still reports a high-severity Electron vulnerability. Fixing it requires a separate major Electron upgrade milestone.
 
 ## License
 

@@ -26,7 +26,7 @@ npm run dist
 
 The current configuration uses unpacked directory targets only. Code signing, notarization, auto-update, and publishing are intentionally not configured.
 
-The repository currently uses Electron 35. `npm audit` reports a high-severity Electron vulnerability that requires a separate major Electron upgrade milestone.
+The repository currently uses Electron 41.5.0. `npm audit` reports no known vulnerabilities after the Electron runtime upgrade.
 
 Windows packaging uses the app icon at `build/icon.ico`.
 

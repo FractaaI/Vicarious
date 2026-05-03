@@ -6,6 +6,7 @@ release-icon-polish*/
 release-verify*/
 out/
 coverage/
+plans/
 .DS_Store
 *.log
 .env*

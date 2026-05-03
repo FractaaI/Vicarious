@@ -142,4 +142,4 @@ Windows builds produced by the current local packaging setup are unsigned. If pa
 
 ## License
 
-No project license has been selected yet. Add a `LICENSE` file before treating the repository as openly licensed or accepting external contributions.
+Vicarious is licensed under the MIT License. See [LICENSE](LICENSE) for details.

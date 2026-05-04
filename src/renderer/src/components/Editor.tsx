@@ -1,5 +1,10 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Scene, Character, DialogueLine } from '../types';
+import {
+  getFlatSceneLines,
+  isLongDialogueLine,
+  isSceneDirectionLine,
+} from '../../../shared/flatSceneLines';
 import { getAdaptiveColor } from '../utils/colors';
 
 interface EditorProps {
@@ -112,18 +117,13 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
     }
   };
 
-  const isHeader = (text: string) => {
-    const t = text.trim();
-    return t.startsWith('[') || t.startsWith('INT.') || t.startsWith('EXT.');
-  };
-
   return (
     <div className="flex-1 overflow-y-auto bg-transparent transition-colors duration-200 flex flex-col items-center">
       <div className="w-full max-w-2xl px-12 py-16 space-y-8">
-        {scene.lines.map((line, index) => {
+        {getFlatSceneLines(scene).map((line, index) => {
           const char = characters.find(c => c.id === line.characterId);
-          const header = isHeader(line.text);
-          const isLongLine = !header && line.text.split(/\s+/).filter(Boolean).length > 25;
+          const header = isSceneDirectionLine(line);
+          const isLongLine = isLongDialogueLine(line);
 
           return (
             <div key={line.id} className="relative group/line transition-all">

@@ -1,21 +1,22 @@
 import type { DialogueLine, Scene } from './projectTypes';
+import {
+  getFlatSceneLines,
+  isSceneDirectionLine,
+  isSceneDirectionText,
+} from './flatSceneLines';
 
 export function formatSceneAsMarkdown(scene: Scene): string {
-  return scene.lines.map((line) => formatDialogueLine(line, scene)).join('\n\n');
+  return getFlatSceneLines(scene)
+    .map((line) => formatDialogueLine(line, scene))
+    .join('\n\n');
 }
 
 export function isSceneDirection(text: string): boolean {
-  const trimmed = text.trim();
-
-  return (
-    trimmed.startsWith('[') ||
-    trimmed.startsWith('INT.') ||
-    trimmed.startsWith('EXT.')
-  );
+  return isSceneDirectionText(text);
 }
 
 function formatDialogueLine(line: DialogueLine, scene: Scene): string {
-  if (isSceneDirection(line.text)) {
+  if (isSceneDirectionLine(line)) {
     return line.text;
   }
 

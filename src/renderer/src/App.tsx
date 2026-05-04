@@ -13,6 +13,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { createBlankProject } from '../../shared/project';
 import { formatSceneAsMarkdown } from '../../shared/markdown';
+import { calculateFlatSceneWordCounts } from '../../shared/flatSceneLines';
 import type {
   Character,
   DialogueLine,
@@ -538,22 +539,7 @@ export default function App() {
   ]);
 
   const wordCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    currentScene.characters.forEach((character) => {
-      counts[character.id] = 0;
-    });
-    let total = 0;
-
-    currentScene.lines.forEach((line) => {
-      if (isHeader(line.text)) return;
-      const words = line.text.trim().split(/\s+/).filter(Boolean).length;
-      if (counts[line.characterId] !== undefined) {
-        counts[line.characterId] += words;
-      }
-      total += words;
-    });
-
-    return { perCharacter: counts, total };
+    return calculateFlatSceneWordCounts(currentScene);
   }, [currentScene]);
 
   if (!isRecoveryCheckComplete) {
@@ -910,15 +896,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-function isHeader(text: string): boolean {
-  const trimmed = text.trim();
-  return (
-    trimmed.startsWith('[') ||
-    trimmed.startsWith('INT.') ||
-    trimmed.startsWith('EXT.')
   );
 }
 

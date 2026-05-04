@@ -16,11 +16,9 @@ import { formatSceneAsMarkdown } from '../../shared/markdown';
 import {
   calculateSceneDialogueWordCounts,
   reassignSceneCharacterReferences,
-  replaceEditableDialogueBlocksInNonBranchingScene,
 } from '../../shared/flatSceneLines';
 import type {
   Character,
-  DialogueBlock,
   RecoveryFile,
   Scene,
   VicariousProject,
@@ -751,11 +749,7 @@ export default function App() {
               scene={currentScene}
               characters={currentScene.characters}
               activeSpeakerIndex={activeSpeakerIndex}
-              onUpdate={(blocks: DialogueBlock[]) =>
-                updateCurrentScene((scene) =>
-                  replaceEditableDialogueBlocksInNonBranchingScene(scene, blocks)
-                )
-              }
+              onUpdateScene={(scene) => updateCurrentScene(() => scene)}
               setActiveSpeakerIndex={setActiveSpeakerIndex}
               isDarkMode={isDarkMode}
               setActiveLineId={setActiveLineId}

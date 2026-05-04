@@ -1,9 +1,9 @@
 import React, { useRef, useEffect } from 'react';
-import { Scene, Character, DialogueLine } from '../types';
+import { Scene, Character } from '../types';
 import { motion } from 'motion/react';
 import {
   formatSceneDirectionPreviewText,
-  getFlatSceneLines,
+  getEditableDialogueBlocksForNonBranchingScene,
   isGroupedWithPreviousDialogueLine,
   isSceneDirectionLine,
 } from '../../../shared/flatSceneLines';
@@ -21,8 +21,8 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const lines = getFlatSceneLines(scene);
-  const activeLineText = lines.find(l => l.id === activeLineId)?.text;
+  const blocks = getEditableDialogueBlocksForNonBranchingScene(scene);
+  const activeLineText = blocks?.find(l => l.id === activeLineId)?.text;
 
   useEffect(() => {
     if (!activeLineId) return;
@@ -58,12 +58,22 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [activeLineId, activeLineText, lines.length]);
+  }, [activeLineId, activeLineText, blocks?.length]);
+
+  if (!blocks) {
+    return (
+      <div ref={scrollContainerRef} className="flex-1 bg-[#FAFAF8] dark:bg-[#303030] border-l border-stone-100 dark:border-white/5 overflow-y-auto no-scrollbar transition-colors duration-200">
+        <div className="max-w-md mx-auto px-6 py-16 text-sm text-stone-500 dark:text-zinc-400">
+          Branching preview is not available yet.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={scrollContainerRef} className="flex-1 bg-[#FAFAF8] dark:bg-[#303030] border-l border-stone-100 dark:border-white/5 overflow-y-auto no-scrollbar transition-colors duration-200">
       <div className="max-w-md mx-auto px-6 py-16 space-y-6 flex flex-col">
-        {lines.map((line, index) => {
+        {blocks.map((line, index) => {
           if (!line.text.trim()) return null;
 
           const header = isSceneDirectionLine(line);
@@ -88,7 +98,7 @@ export default function Preview({ scene, characters, isDarkMode, activeLineId }:
           }
 
           const char = characters.find(c => c.id === line.characterId);
-          const prevLine = index > 0 ? lines[index - 1] : null;
+          const prevLine = index > 0 ? blocks[index - 1] : null;
           const isSameSpeaker = isGroupedWithPreviousDialogueLine(line, prevLine);
           const isMe = line.characterId === characters[0].id;
 

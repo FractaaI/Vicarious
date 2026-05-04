@@ -1,12 +1,18 @@
-import type { DialogueLine, Scene } from './projectTypes';
+import type { DialogueBlock, Scene } from './projectTypes';
 import {
-  getFlatSceneLines,
+  getEditableDialogueBlocksForNonBranchingScene,
   isSceneDirectionLine,
   isSceneDirectionText,
 } from './flatSceneLines';
 
 export function formatSceneAsMarkdown(scene: Scene): string {
-  return getFlatSceneLines(scene)
+  const blocks = getEditableDialogueBlocksForNonBranchingScene(scene);
+
+  if (!blocks) {
+    throw new Error('Branching scene export is not available yet.');
+  }
+
+  return blocks
     .map((line) => formatDialogueLine(line, scene))
     .join('\n\n');
 }
@@ -15,7 +21,7 @@ export function isSceneDirection(text: string): boolean {
   return isSceneDirectionText(text);
 }
 
-function formatDialogueLine(line: DialogueLine, scene: Scene): string {
+function formatDialogueLine(line: DialogueBlock, scene: Scene): string {
   if (isSceneDirectionLine(line)) {
     return line.text;
   }

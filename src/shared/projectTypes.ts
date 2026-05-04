@@ -4,22 +4,47 @@ export interface Character {
   color: string;
 }
 
-export interface DialogueLine {
+export interface DialogueBlock {
   id: string;
+  type: 'dialogue';
   characterId: string;
   text: string;
   isHeader?: boolean;
 }
 
+export type DialogueLine = DialogueBlock;
+
+export interface ChoiceOption {
+  id: string;
+  characterId: string;
+  text: string;
+  targetSectionId: string | null;
+}
+
+export interface ChoiceBlock {
+  id: string;
+  type: 'choice';
+  options: ChoiceOption[];
+}
+
+export type SceneBlock = DialogueBlock | ChoiceBlock;
+
+export interface SceneSection {
+  id: string;
+  name: string;
+  blocks: SceneBlock[];
+  nextSectionId: string | null;
+}
+
 export interface Scene {
   id: string;
   name: string;
-  lines: DialogueLine[];
   characters: Character[];
+  sections: SceneSection[];
 }
 
 export interface VicariousProject {
-  version: 1;
+  version: 2;
   id: string;
   title: string;
   scenes: Scene[];

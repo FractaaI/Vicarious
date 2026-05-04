@@ -13,10 +13,14 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { createBlankProject } from '../../shared/project';
 import { formatSceneAsMarkdown } from '../../shared/markdown';
-import { calculateFlatSceneWordCounts } from '../../shared/flatSceneLines';
+import {
+  calculateSceneDialogueWordCounts,
+  reassignSceneCharacterReferences,
+  replaceEditableDialogueBlocksInNonBranchingScene,
+} from '../../shared/flatSceneLines';
 import type {
   Character,
-  DialogueLine,
+  DialogueBlock,
   RecoveryFile,
   Scene,
   VicariousProject,
@@ -335,11 +339,19 @@ export default function App() {
       id: `scene-${timestamp}`,
       name: `Scene ${scenes.length + 1}`,
       characters: [DEFAULT_CHARACTER_POOL[0], DEFAULT_CHARACTER_POOL[1]],
-      lines: [
+      sections: [
         {
-          id: `line-${timestamp}`,
-          characterId: DEFAULT_CHARACTER_POOL[0].id,
-          text: '',
+          id: `scene-${timestamp}-section-main`,
+          name: `Scene ${scenes.length + 1}`,
+          blocks: [
+            {
+              id: `line-${timestamp}`,
+              type: 'dialogue',
+              characterId: DEFAULT_CHARACTER_POOL[0].id,
+              text: '',
+            },
+          ],
+          nextSectionId: null,
         },
       ],
     };
@@ -431,13 +443,12 @@ export default function App() {
       const newCharacters = scene.characters.filter(
         (character) => character.id !== charId
       );
-      const newLines = scene.lines.map((line) =>
-        line.characterId === charId
-          ? { ...line, characterId: newCharacters[0].id }
-          : line
-      );
 
-      return { ...scene, characters: newCharacters, lines: newLines };
+      return reassignSceneCharacterReferences(
+        { ...scene, characters: newCharacters },
+        charId,
+        newCharacters[0].id
+      );
     });
 
     if (activeSpeakerIndex >= currentScene.characters.length - 1) {
@@ -539,7 +550,7 @@ export default function App() {
   ]);
 
   const wordCounts = useMemo(() => {
-    return calculateFlatSceneWordCounts(currentScene);
+    return calculateSceneDialogueWordCounts(currentScene);
   }, [currentScene]);
 
   if (!isRecoveryCheckComplete) {
@@ -740,8 +751,10 @@ export default function App() {
               scene={currentScene}
               characters={currentScene.characters}
               activeSpeakerIndex={activeSpeakerIndex}
-              onUpdate={(lines: DialogueLine[]) =>
-                updateCurrentScene((scene) => ({ ...scene, lines }))
+              onUpdate={(blocks: DialogueBlock[]) =>
+                updateCurrentScene((scene) =>
+                  replaceEditableDialogueBlocksInNonBranchingScene(scene, blocks)
+                )
               }
               setActiveSpeakerIndex={setActiveSpeakerIndex}
               isDarkMode={isDarkMode}

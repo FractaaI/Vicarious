@@ -1,6 +1,6 @@
 export type {
   Character,
-  DialogueLine,
+  DialogueBlock,
   RecoveryFile,
   Scene,
   VicariousProject,

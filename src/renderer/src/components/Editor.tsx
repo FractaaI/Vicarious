@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Scene, Character, DialogueLine } from '../types';
+import { Scene, Character, DialogueBlock } from '../types';
 import {
-  getFlatSceneLines,
+  getEditableDialogueBlocksForNonBranchingScene,
   isLongDialogueLine,
   isSceneDirectionLine,
 } from '../../../shared/flatSceneLines';
@@ -11,7 +11,7 @@ interface EditorProps {
   scene: Scene;
   characters: Character[];
   activeSpeakerIndex: number;
-  onUpdate: (lines: DialogueLine[]) => void;
+  onUpdate: (blocks: DialogueBlock[]) => void;
   setActiveSpeakerIndex: (index: number) => void;
   isDarkMode: boolean;
   setActiveLineId: (id: string | null) => void;
@@ -19,18 +19,23 @@ interface EditorProps {
 
 export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate, setActiveSpeakerIndex, isDarkMode, setActiveLineId }: EditorProps) {
   const lineRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const blocks = getEditableDialogueBlocksForNonBranchingScene(scene);
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (!blocks) {
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       const nextSpeakerIndex = (activeSpeakerIndex + 1) % characters.length;
       setActiveSpeakerIndex(nextSpeakerIndex);
 
       const nextCharacterId = characters[nextSpeakerIndex]?.id;
-      if (nextCharacterId && scene.lines[index].characterId !== nextCharacterId) {
-        const newLines = [...scene.lines];
-        newLines[index] = { ...newLines[index], characterId: nextCharacterId };
-        onUpdate(newLines);
+      if (nextCharacterId && blocks[index].characterId !== nextCharacterId) {
+        const newBlocks = [...blocks];
+        newBlocks[index] = { ...newBlocks[index], characterId: nextCharacterId };
+        onUpdate(newBlocks);
       }
     }
 
@@ -38,21 +43,22 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
       e.preventDefault();
       const el = lineRefs.current[index];
       const cursorPos = el?.selectionStart || 0;
-      const currentText = scene.lines[index].text;
+      const currentText = blocks[index].text;
       
       const textBefore = currentText.substring(0, cursorPos);
       const textAfter = currentText.substring(cursorPos);
 
-      const newLines = [...scene.lines];
-      newLines[index] = { ...newLines[index], text: textBefore };
+      const newBlocks = [...blocks];
+      newBlocks[index] = { ...newBlocks[index], text: textBefore };
       
-      const newLine: DialogueLine = {
+      const newLine: DialogueBlock = {
         id: `line-${Date.now()}`,
+        type: 'dialogue',
         characterId: characters[activeSpeakerIndex].id,
         text: textAfter
       };
-      newLines.splice(index + 1, 0, newLine);
-      onUpdate(newLines);
+      newBlocks.splice(index + 1, 0, newLine);
+      onUpdate(newBlocks);
       
       setTimeout(() => {
         const nextEl = lineRefs.current[index + 1];
@@ -67,15 +73,15 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
       const el = lineRefs.current[index];
       if (el && el.selectionStart === 0 && el.selectionEnd === 0) {
         e.preventDefault();
-        const currentText = scene.lines[index].text;
-        const prevText = scene.lines[index - 1].text;
-        const newLines = [...scene.lines];
+        const currentText = blocks[index].text;
+        const prevText = blocks[index - 1].text;
+        const newBlocks = [...blocks];
         
         // Merge texts
-        newLines[index - 1] = { ...newLines[index - 1], text: prevText + currentText };
+        newBlocks[index - 1] = { ...newBlocks[index - 1], text: prevText + currentText };
         // Remove current line
-        newLines.splice(index, 1);
-        onUpdate(newLines);
+        newBlocks.splice(index, 1);
+        onUpdate(newBlocks);
         
         // Focus previous line and restore cursor position
         setTimeout(() => {
@@ -96,7 +102,7 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
     }
 
     if (e.key === 'ArrowDown') {
-      if (index < scene.lines.length - 1) {
+      if (index < blocks.length - 1) {
         e.preventDefault();
         lineRefs.current[index + 1]?.focus();
       }
@@ -104,9 +110,13 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
   };
 
   const handleTextChange = (index: number, text: string) => {
-    const newLines = [...scene.lines];
-    newLines[index] = { ...newLines[index], text };
-    onUpdate(newLines);
+    if (!blocks) {
+      return;
+    }
+
+    const newBlocks = [...blocks];
+    newBlocks[index] = { ...newBlocks[index], text };
+    onUpdate(newBlocks);
   };
 
   // Adjust textarea height
@@ -117,10 +127,22 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
     }
   };
 
+  if (!blocks) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-transparent transition-colors duration-200 flex flex-col items-center">
+        <div className="w-full max-w-2xl px-12 py-16">
+          <div className="rounded-lg border border-stone-200 bg-[#FAFAF8] px-4 py-3 text-sm text-stone-500 dark:border-white/10 dark:bg-[#303030] dark:text-zinc-400">
+            Branching scene editing is not available yet.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-transparent transition-colors duration-200 flex flex-col items-center">
       <div className="w-full max-w-2xl px-12 py-16 space-y-8">
-        {getFlatSceneLines(scene).map((line, index) => {
+        {blocks.map((line, index) => {
           const char = characters.find(c => c.id === line.characterId);
           const header = isSceneDirectionLine(line);
           const isLongLine = isLongDialogueLine(line);
@@ -170,7 +192,7 @@ export default function Editor({ scene, characters, activeSpeakerIndex, onUpdate
           );
         })}
         {/* Placeholder for clicking at the end */}
-        <div className="h-64" onClick={() => lineRefs.current[scene.lines.length - 1]?.focus()} />
+        <div className="h-64" onClick={() => lineRefs.current[blocks.length - 1]?.focus()} />
       </div>
     </div>
   );

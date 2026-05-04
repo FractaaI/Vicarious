@@ -5,15 +5,24 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import type { Character, DialogueBlock, Scene } from '../types';
+import type { Character, ChoiceBlock, DialogueBlock, Scene } from '../types';
 import {
   addSceneSection,
+  addChoiceOption,
+  canSetChoiceOptionTarget,
+  canSetSceneSectionContinuation,
+  createChoiceFromDialogueBlock,
+  createChoiceTargetSection,
   deleteSceneSection,
   getDialogueBlockPositions,
   getSectionDeleteBlockReason,
   mergeDialogueBlockWithPrevious,
   renameSceneSection,
+  removeChoiceOption,
   splitDialogueBlock,
+  updateChoiceOptionSpeaker,
+  updateChoiceOptionTarget,
+  updateChoiceOptionText,
   updateDialogueBlockSpeaker,
   updateDialogueBlockText,
   updateSceneSectionContinuation,
@@ -44,6 +53,7 @@ export default function Editor({
   setActiveLineId,
 }: EditorProps) {
   const lineRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const choiceOptionRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -87,6 +97,25 @@ export default function Editor({
 
     if (event.key === 'Enter') {
       event.preventDefault();
+
+      if (line.text.trim() === '/choice') {
+        const optionCharacterId =
+          characters[activeSpeakerIndex]?.id ?? characters[0]?.id ?? line.characterId;
+        const result = createChoiceFromDialogueBlock(
+          scene,
+          sectionId,
+          line.id,
+          optionCharacterId
+        );
+
+        if (!result) {
+          return;
+        }
+
+        onUpdateScene(result.scene);
+        focusChoiceOption(result.firstOptionId);
+        return;
+      }
 
       const element = lineRefs.current[line.id];
       const cursorPosition = element?.selectionStart ?? 0;
@@ -190,6 +219,112 @@ export default function Editor({
     onUpdateScene(result.scene);
   };
 
+  const handleChoiceOptionTextChange = (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    text: string
+  ) => {
+    onUpdateScene(
+      updateChoiceOptionText(scene, sectionId, choiceBlockId, optionId, text)
+    );
+  };
+
+  const handleChoiceOptionSpeakerChange = (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    characterId: string
+  ) => {
+    onUpdateScene(
+      updateChoiceOptionSpeaker(scene, sectionId, choiceBlockId, optionId, characterId)
+    );
+  };
+
+  const handleChoiceOptionTargetChange = (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    value: string
+  ) => {
+    const result = updateChoiceOptionTarget(
+      scene,
+      sectionId,
+      choiceBlockId,
+      optionId,
+      value === '' ? null : value
+    );
+
+    if (result.error) {
+      setSectionMessage(result.error);
+      return;
+    }
+
+    setSectionMessage(null);
+    onUpdateScene(result.scene);
+  };
+
+  const handleAddChoiceOption = (sectionId: string, choiceBlockId: string) => {
+    const characterId = characters[activeSpeakerIndex]?.id ?? characters[0]?.id;
+
+    if (!characterId) {
+      return;
+    }
+
+    const nextScene = addChoiceOption(scene, sectionId, choiceBlockId, characterId);
+    const choiceBlock = nextScene.sections
+      .find((section) => section.id === sectionId)
+      ?.blocks.find((block) => block.id === choiceBlockId && block.type === 'choice');
+    const newOption = choiceBlock?.type === 'choice'
+      ? choiceBlock.options[choiceBlock.options.length - 1]
+      : null;
+
+    setSectionMessage(null);
+    onUpdateScene(nextScene);
+
+    if (newOption) {
+      focusChoiceOption(newOption.id);
+    }
+  };
+
+  const handleRemoveChoiceOption = (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string
+  ) => {
+    setSectionMessage(null);
+    onUpdateScene(removeChoiceOption(scene, sectionId, choiceBlockId, optionId));
+  };
+
+  const handleCreateChoiceTarget = (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string
+  ) => {
+    const characterId = characters[activeSpeakerIndex]?.id ?? characters[0]?.id;
+
+    if (!characterId) {
+      return;
+    }
+
+    const result = createChoiceTargetSection(
+      scene,
+      sectionId,
+      choiceBlockId,
+      optionId,
+      characterId
+    );
+
+    if (result.error) {
+      setSectionMessage(result.error);
+      return;
+    }
+
+    setSectionMessage(null);
+    onUpdateScene(result.scene);
+    focusLine(result.firstBlockId, 0);
+  };
+
   const toggleSection = (sectionId: string) => {
     setCollapsedSectionIds((previous) => {
       const next = new Set(previous);
@@ -222,6 +357,12 @@ export default function Editor({
       const position = cursorPosition ?? element.selectionStart;
       element.focus();
       element.setSelectionRange(position, position);
+    }, 0);
+  };
+
+  const focusChoiceOption = (optionId: string) => {
+    window.setTimeout(() => {
+      choiceOptionRefs.current[optionId]?.focus();
     }, 0);
   };
 
@@ -292,29 +433,20 @@ export default function Editor({
                     {section.blocks.map((block) => {
                       if (block.type === 'choice') {
                         return (
-                          <div
+                          <ChoiceBlockEditor
                             key={block.id}
-                            className="rounded-lg border border-dashed border-stone-200 bg-[#FAFAF8]/70 px-4 py-3 text-sm text-stone-500 dark:border-white/10 dark:bg-[#303030]/70 dark:text-zinc-400"
-                          >
-                            <div className="text-[10px] font-mono font-semibold uppercase tracking-widest text-stone-400 dark:text-zinc-500">
-                              Choice block
-                            </div>
-                            <div className="mt-2 space-y-1">
-                              {block.options.length === 0 ? (
-                                <div>No options yet.</div>
-                              ) : (
-                                block.options.map((option) => (
-                                  <div key={option.id} className="truncate">
-                                    {option.text || 'Untitled option'}
-                                    {' -> '}
-                                    {option.targetSectionId
-                                      ? sectionNameForId(scene, option.targetSectionId)
-                                      : 'Ends here'}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
+                            scene={scene}
+                            sectionId={section.id}
+                            choiceBlock={block}
+                            characters={characters}
+                            choiceOptionRefs={choiceOptionRefs}
+                            onOptionTextChange={handleChoiceOptionTextChange}
+                            onOptionSpeakerChange={handleChoiceOptionSpeakerChange}
+                            onOptionTargetChange={handleChoiceOptionTargetChange}
+                            onCreateTarget={handleCreateChoiceTarget}
+                            onAddOption={handleAddChoiceOption}
+                            onRemoveOption={handleRemoveChoiceOption}
+                          />
                         );
                       }
 
@@ -346,7 +478,13 @@ export default function Editor({
                     >
                       <option value="">Ends here</option>
                       {scene.sections
-                        .filter((targetSection) => targetSection.id !== section.id)
+                        .filter((targetSection) =>
+                          canSetSceneSectionContinuation(
+                            scene,
+                            section.id,
+                            targetSection.id
+                          )
+                        )
                         .map((targetSection) => (
                           <option key={targetSection.id} value={targetSection.id}>
                             {targetSection.name}
@@ -371,6 +509,178 @@ export default function Editor({
           }}
         />
       </div>
+    </div>
+  );
+}
+
+interface ChoiceBlockEditorProps {
+  scene: Scene;
+  sectionId: string;
+  choiceBlock: ChoiceBlock;
+  characters: Character[];
+  choiceOptionRefs: React.MutableRefObject<Record<string, HTMLInputElement | null>>;
+  onOptionTextChange: (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    text: string
+  ) => void;
+  onOptionSpeakerChange: (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    characterId: string
+  ) => void;
+  onOptionTargetChange: (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string,
+    value: string
+  ) => void;
+  onCreateTarget: (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string
+  ) => void;
+  onAddOption: (sectionId: string, choiceBlockId: string) => void;
+  onRemoveOption: (
+    sectionId: string,
+    choiceBlockId: string,
+    optionId: string
+  ) => void;
+}
+
+function ChoiceBlockEditor({
+  scene,
+  sectionId,
+  choiceBlock,
+  characters,
+  choiceOptionRefs,
+  onOptionTextChange,
+  onOptionSpeakerChange,
+  onOptionTargetChange,
+  onCreateTarget,
+  onAddOption,
+  onRemoveOption,
+}: ChoiceBlockEditorProps) {
+  return (
+    <div className="rounded-lg border border-stone-200 bg-[#FAFAF8]/70 px-4 py-4 text-sm text-stone-600 dark:border-white/10 dark:bg-[#303030]/70 dark:text-zinc-300">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[10px] font-mono font-semibold uppercase tracking-widest text-stone-400 dark:text-zinc-500">
+          Choice
+        </div>
+        <button
+          type="button"
+          onClick={() => onAddOption(sectionId, choiceBlock.id)}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-100"
+        >
+          <Plus size={13} />
+          Add Option
+        </button>
+      </div>
+
+      {choiceBlock.options.length === 0 ? (
+        <div className="rounded-md border border-dashed border-stone-200 px-3 py-2 text-xs text-stone-400 dark:border-white/10 dark:text-zinc-500">
+          No options yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {choiceBlock.options.map((option, optionIndex) => (
+            <div
+              key={option.id}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <select
+                value={option.characterId}
+                onChange={(event) =>
+                  onOptionSpeakerChange(
+                    sectionId,
+                    choiceBlock.id,
+                    option.id,
+                    event.target.value
+                  )
+                }
+                className="min-w-0 max-w-full flex-[1_1_7.5rem] rounded-md border border-stone-200 bg-[#FAFAF8] px-2 py-1.5 text-xs text-stone-600 outline-none transition-colors dark:border-white/10 dark:bg-[#303030] dark:text-zinc-300"
+                aria-label={`Choice option ${optionIndex + 1} character`}
+              >
+                {characters.map((character) => (
+                  <option key={character.id} value={character.id}>
+                    {character.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                ref={(element) => {
+                  choiceOptionRefs.current[option.id] = element;
+                }}
+                value={option.text}
+                onChange={(event) =>
+                  onOptionTextChange(
+                    sectionId,
+                    choiceBlock.id,
+                    option.id,
+                    event.target.value
+                  )
+                }
+                placeholder="Choice text"
+                className="min-w-0 max-w-full flex-[999_1_14rem] rounded-md border border-stone-200 bg-white/60 px-2.5 py-1.5 text-sm text-stone-800 outline-none transition-colors placeholder:text-stone-300 focus:border-stone-300 dark:border-white/10 dark:bg-black/10 dark:text-zinc-100 dark:placeholder:text-zinc-600 dark:focus:border-white/20"
+              />
+              <select
+                value={option.targetSectionId ?? ''}
+                onChange={(event) =>
+                  onOptionTargetChange(
+                    sectionId,
+                    choiceBlock.id,
+                    option.id,
+                    event.target.value
+                  )
+                }
+                className="min-w-0 max-w-full flex-[1_1_9.5rem] rounded-md border border-stone-200 bg-[#FAFAF8] px-2 py-1.5 text-xs text-stone-600 outline-none transition-colors dark:border-white/10 dark:bg-[#303030] dark:text-zinc-300"
+                aria-label={`Choice option ${optionIndex + 1} target`}
+              >
+                <option value="">No target</option>
+                {scene.sections
+                  .filter((targetSection) =>
+                    canSetChoiceOptionTarget(
+                      scene,
+                      sectionId,
+                      choiceBlock.id,
+                      option.id,
+                      targetSection.id
+                    )
+                  )
+                  .map((targetSection) => (
+                    <option key={targetSection.id} value={targetSection.id}>
+                      {targetSection.name}
+                    </option>
+                  ))}
+              </select>
+              <div className="ml-auto flex flex-none items-center gap-1">
+                {!option.targetSectionId && (
+                  <button
+                    type="button"
+                    onClick={() => onCreateTarget(sectionId, choiceBlock.id, option.id)}
+                    className="rounded p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-white/5 dark:hover:text-zinc-200"
+                    title="Create target section"
+                    aria-label={`Create target for choice option ${optionIndex + 1}`}
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onRemoveOption(sectionId, choiceBlock.id, option.id)}
+                  className="rounded p-1.5 text-stone-300 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-zinc-600 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                  title="Remove option"
+                  aria-label={`Remove choice option ${optionIndex + 1}`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -454,12 +764,5 @@ function DialogueLineEditor({
         />
       )}
     </div>
-  );
-}
-
-function sectionNameForId(scene: Scene, sectionId: string): string {
-  return (
-    scene.sections.find((section) => section.id === sectionId)?.name ??
-    'Unknown section'
   );
 }

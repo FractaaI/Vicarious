@@ -1,4 +1,6 @@
 import type {
+  ChoiceBlock,
+  ChoiceOption,
   DialogueBlock,
   Scene,
   SceneBlock,
@@ -19,6 +21,20 @@ export interface MergeDialogueResult {
   scene: Scene;
   focusBlockId: string;
   cursorPosition: number;
+}
+
+export interface CreateChoiceResult {
+  scene: Scene;
+  choiceBlockId: string;
+  firstOptionId: string;
+  continuationSectionId: string | null;
+}
+
+export interface CreateChoiceTargetSectionResult {
+  scene: Scene;
+  sectionId: string;
+  firstBlockId: string;
+  error: string | null;
 }
 
 export interface DialogueBlockPosition {
@@ -151,6 +167,82 @@ export function splitDialogueBlock(
   };
 }
 
+export function createChoiceFromDialogueBlock(
+  scene: Scene,
+  sectionId: string,
+  blockId: string,
+  characterId: string,
+  generateId: () => string = createTimestampId
+): CreateChoiceResult | null {
+  if (!scene.characters.some((character) => character.id === characterId)) {
+    return null;
+  }
+
+  const sectionIndex = scene.sections.findIndex((section) => section.id === sectionId);
+
+  if (sectionIndex === -1) {
+    return null;
+  }
+
+  const section = scene.sections[sectionIndex];
+  const blockIndex = section.blocks.findIndex((block) => block.id === blockId);
+  const block = section.blocks[blockIndex];
+
+  if (!block || block.type !== 'dialogue' || block.text.trim() !== '/choice') {
+    return null;
+  }
+
+  const choiceBlockId = createUniqueId(scene, 'choice', generateId);
+  const firstOptionId = createUniqueId(scene, 'option', generateId);
+  const choiceBlock: ChoiceBlock = {
+    id: choiceBlockId,
+    type: 'choice',
+    options: [
+      {
+        id: firstOptionId,
+        characterId,
+        text: '',
+        targetSectionId: null,
+      },
+    ],
+  };
+  const leadingBlocks = section.blocks.slice(0, blockIndex);
+  const trailingBlocks = section.blocks.slice(blockIndex + 1);
+
+  if (trailingBlocks.length === 0) {
+    const blocks = [...leadingBlocks, choiceBlock];
+
+    return {
+      scene: replaceSectionAt(scene, sectionIndex, { ...section, blocks }),
+      choiceBlockId,
+      firstOptionId,
+      continuationSectionId: null,
+    };
+  }
+
+  const continuationSectionId = createUniqueId(scene, 'section', generateId);
+  const continuationSection: SceneSection = {
+    id: continuationSectionId,
+    name: `${section.name.trim() || 'Section'} Continuation`,
+    blocks: trailingBlocks,
+    nextSectionId: section.nextSectionId,
+  };
+  const updatedSection: SceneSection = {
+    ...section,
+    blocks: [...leadingBlocks, choiceBlock],
+    nextSectionId: continuationSectionId,
+  };
+  const sections = [...scene.sections];
+  sections.splice(sectionIndex, 1, updatedSection, continuationSection);
+
+  return {
+    scene: { ...scene, sections },
+    choiceBlockId,
+    firstOptionId,
+    continuationSectionId,
+  };
+}
+
 export function mergeDialogueBlockWithPrevious(
   scene: Scene,
   sectionId: string,
@@ -188,6 +280,171 @@ export function mergeDialogueBlockWithPrevious(
     scene: replaceSectionAt(scene, sectionIndex, { ...section, blocks }),
     focusBlockId: previousBlock.id,
     cursorPosition,
+  };
+}
+
+export function updateChoiceOptionText(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  text: string
+): Scene {
+  return updateChoiceOption(scene, sectionId, choiceBlockId, optionId, (option) => ({
+    ...option,
+    text,
+  }));
+}
+
+export function updateChoiceOptionSpeaker(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  characterId: string
+): Scene {
+  if (!scene.characters.some((character) => character.id === characterId)) {
+    return scene;
+  }
+
+  return updateChoiceOption(scene, sectionId, choiceBlockId, optionId, (option) => ({
+    ...option,
+    characterId,
+  }));
+}
+
+export function addChoiceOption(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  characterId: string,
+  generateId: () => string = createTimestampId
+): Scene {
+  if (!scene.characters.some((character) => character.id === characterId)) {
+    return scene;
+  }
+
+  const option: ChoiceOption = {
+    id: createUniqueId(scene, 'option', generateId),
+    characterId,
+    text: '',
+    targetSectionId: null,
+  };
+
+  return updateChoiceBlock(scene, sectionId, choiceBlockId, (block) => ({
+    ...block,
+    options: [...block.options, option],
+  }));
+}
+
+export function removeChoiceOption(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string
+): Scene {
+  return updateChoiceBlock(scene, sectionId, choiceBlockId, (block) => ({
+    ...block,
+    options: block.options.filter((option) => option.id !== optionId),
+  }));
+}
+
+export function updateChoiceOptionTarget(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  targetSectionId: string | null
+): SectionEditResult {
+  const result = validateChoiceOptionTarget(
+    scene,
+    sectionId,
+    choiceBlockId,
+    optionId,
+    targetSectionId
+  );
+
+  if (result.error) {
+    return result;
+  }
+
+  return {
+    scene: updateChoiceOption(scene, sectionId, choiceBlockId, optionId, (option) => ({
+      ...option,
+      targetSectionId,
+    })),
+    error: null,
+  };
+}
+
+export function createChoiceTargetSection(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  characterId: string,
+  generateId: () => string = createTimestampId
+): CreateChoiceTargetSectionResult {
+  if (!scene.characters.some((character) => character.id === characterId)) {
+    return { scene, sectionId: '', firstBlockId: '', error: 'Character no longer exists.' };
+  }
+
+  const sourceSectionIndex = scene.sections.findIndex(
+    (section) => section.id === sectionId
+  );
+
+  if (sourceSectionIndex === -1) {
+    return { scene, sectionId: '', firstBlockId: '', error: 'Section no longer exists.' };
+  }
+
+  const sourceChoice = scene.sections[sourceSectionIndex].blocks.find(
+    (block): block is ChoiceBlock => block.id === choiceBlockId && block.type === 'choice'
+  );
+
+  if (!sourceChoice?.options.some((option) => option.id === optionId)) {
+    return { scene, sectionId: '', firstBlockId: '', error: 'Choice option no longer exists.' };
+  }
+
+  const newSectionId = createUniqueId(scene, 'section', generateId);
+  const firstBlockId = createUniqueId(scene, 'line', generateId);
+  const newSection: SceneSection = {
+    id: newSectionId,
+    name: `Section ${scene.sections.length + 1}`,
+    nextSectionId: null,
+    blocks: [
+      {
+        id: firstBlockId,
+        type: 'dialogue',
+        characterId,
+        text: '',
+      },
+    ],
+  };
+  const sections = [...scene.sections];
+  sections.splice(sourceSectionIndex + 1, 0, newSection);
+  const sceneWithSection = { ...scene, sections };
+  const targetResult = updateChoiceOptionTarget(
+    sceneWithSection,
+    sectionId,
+    choiceBlockId,
+    optionId,
+    newSectionId
+  );
+
+  if (targetResult.error) {
+    return {
+      scene,
+      sectionId: '',
+      firstBlockId: '',
+      error: targetResult.error,
+    };
+  }
+
+  return {
+    scene: targetResult.scene,
+    sectionId: newSectionId,
+    firstBlockId,
+    error: null,
   };
 }
 
@@ -270,6 +527,32 @@ export function updateSceneSectionContinuation(
   return { scene: nextScene, error: null };
 }
 
+export function canSetSceneSectionContinuation(
+  scene: Scene,
+  sectionId: string,
+  nextSectionId: string | null
+): boolean {
+  return updateSceneSectionContinuation(scene, sectionId, nextSectionId).error === null;
+}
+
+export function canSetChoiceOptionTarget(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  targetSectionId: string | null
+): boolean {
+  return (
+    validateChoiceOptionTarget(
+      scene,
+      sectionId,
+      choiceBlockId,
+      optionId,
+      targetSectionId
+    ).error === null
+  );
+}
+
 function updateDialogueBlock(
   scene: Scene,
   sectionId: string,
@@ -282,6 +565,85 @@ function updateDialogueBlock(
       block.id === blockId && block.type === 'dialogue' ? updater(block) : block
     ),
   }));
+}
+
+function updateChoiceBlock(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  updater: (block: ChoiceBlock) => ChoiceBlock
+): Scene {
+  return updateSection(scene, sectionId, (section) => ({
+    ...section,
+    blocks: section.blocks.map((block) =>
+      block.id === choiceBlockId && block.type === 'choice' ? updater(block) : block
+    ),
+  }));
+}
+
+function updateChoiceOption(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  updater: (option: ChoiceOption) => ChoiceOption
+): Scene {
+  return updateChoiceBlock(scene, sectionId, choiceBlockId, (block) => ({
+    ...block,
+    options: block.options.map((option) =>
+      option.id === optionId ? updater(option) : option
+    ),
+  }));
+}
+
+function validateChoiceOptionTarget(
+  scene: Scene,
+  sectionId: string,
+  choiceBlockId: string,
+  optionId: string,
+  targetSectionId: string | null
+): SectionEditResult {
+  const section = scene.sections.find((candidate) => candidate.id === sectionId);
+
+  if (!section) {
+    return { scene, error: 'Section no longer exists.' };
+  }
+
+  const choiceBlock = section.blocks.find(
+    (block): block is ChoiceBlock => block.id === choiceBlockId && block.type === 'choice'
+  );
+
+  if (!choiceBlock) {
+    return { scene, error: 'Choice block no longer exists.' };
+  }
+
+  if (!choiceBlock.options.some((option) => option.id === optionId)) {
+    return { scene, error: 'Choice option no longer exists.' };
+  }
+
+  if (
+    targetSectionId !== null &&
+    !scene.sections.some((candidate) => candidate.id === targetSectionId)
+  ) {
+    return { scene, error: 'Choice target must be a section in this scene.' };
+  }
+
+  const nextScene = updateChoiceOption(
+    scene,
+    sectionId,
+    choiceBlockId,
+    optionId,
+    (option) => ({
+      ...option,
+      targetSectionId,
+    })
+  );
+
+  if (hasSectionGraphCycle(nextScene)) {
+    return { scene, error: 'Choice target would create a cycle.' };
+  }
+
+  return { scene: nextScene, error: null };
 }
 
 function updateSection(
@@ -363,7 +725,7 @@ function hasSectionGraphCycle(scene: Scene): boolean {
 
 function createUniqueId(
   scene: Scene,
-  prefix: 'line' | 'section',
+  prefix: 'choice' | 'line' | 'option' | 'section',
   generateId: () => string
 ): string {
   const existingIds = new Set<string>();
